@@ -1,2 +1,3 @@
 # project_TTNT
-nền tảng trí tuệ nhân tạo 
+mn push src code lên phần dev nhé 
+
