@@ -1,3 +1,3 @@
 # project_TTNT
-mn push src code lên phần dev nhé 
-sau đó mới merge
+mn push src code lên branch dev nhé 
+sau đó mới merge lê main nhé 
