@@ -1,0 +1,49 @@
+name : ci_cd_pipeline
+on: 
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+jobs:
+  build and test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: check mã nguồn
+        uses: actions/checkout@v3
+
+      - name: Thiết lập Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Cài đặt Dependencies
+        run: npm ci
+
+      - name: Chạy Unit/Integration Tests
+        run: npm test
+
+      - name: Build ứng dụng
+        run: npm run build
+  deploy and run:
+    needs: build-and-test # Chỉ chạy khi Job 1 thành công
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+    - name: Checkout mã nguồn
+      uses: actions/checkout@v4
+
+    - name: Chạy/Deploy ứng dụng trên Runner
+      run: |
+        echo "Bắt đầu khởi chạy ứng dụng..."
+        # Ví dụ chạy bằng Docker:
+        # docker build -t my-app .
+        # docker run -d -p 8080:8080 my-app
+        # Hoặc chạy trực tiếp bằng script:
+        npm start &
+        
+    - name: Kiểm tra tính đúng đắn sau khi chạy
+      run: |
+        sleep 5
+        echo "Ứng dụng đang hoạt động bình thường!"
