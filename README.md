@@ -1,3 +1,2 @@
 # project_TTNT
-mn push src code lên branche dev nhé 
-sau đó mới merge lê main nhé 
+ông frontend làm tính năng ở đây xong push lên dev cho ông backend check nhé 
