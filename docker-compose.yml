@@ -1,0 +1,63 @@
+services:
+  products-db:
+    image: postgres:16-alpine
+    container_name: ttnt-products-db
+    environment:
+      POSTGRES_DB: products_db
+      POSTGRES_USER: products_user
+      POSTGRES_PASSWORD: products_pass
+    volumes:
+      - products_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U products_user -d products_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  search-db:
+    image: postgres:16-alpine
+    container_name: ttnt-search-db
+    environment:
+      POSTGRES_DB: search_db
+      POSTGRES_USER: search_user
+      POSTGRES_PASSWORD: search_pass
+    volumes:
+      - search_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U search_user -d search_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    environment:
+      PORT: 3000
+      PRODUCTS_DATABASE_URL: postgres://products_user:products_pass@products-db:5432/products_db
+      SEARCH_DATABASE_URL: postgres://search_user:search_pass@search-db:5432/search_db
+      FRONTEND_ORIGIN: "*"
+      SEED_ON_START: "true"
+    ports:
+      - "3000:3000"
+    depends_on:
+      products-db:
+        condition: service_healthy
+      search-db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_URL: http://localhost:3000
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  products_data:
+  search_data:
