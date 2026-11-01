@@ -1,0 +1,86 @@
+# Dùng trên server production. Image được GitHub Actions build sẵn và đẩy lên GHCR.
+#   docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d
+# Các biến bắt buộc nằm trong file .env cạnh file này (xem .env.example).
+name: ttnt
+
+x-restart: &restart
+  restart: unless-stopped
+
+x-logging: &logging
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "3" } # tránh log làm đầy ổ đĩa
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: ttnt-postgres
+    <<: [*restart, *logging]
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ttnt}
+      POSTGRES_USER: ${POSTGRES_USER:-ttnt}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Hãy đặt POSTGRES_PASSWORD trong file .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # Không publish cổng 5432 ra ngoài: chỉ các container trong cùng mạng mới truy cập được database.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  ai-service:
+    image: ghcr.io/${GHCR_OWNER:?}/ttnt-ai-service:${IMAGE_TAG:-latest}
+    container_name: ttnt-ai
+    <<: [*restart, *logging]
+
+  backend:
+    image: ghcr.io/${GHCR_OWNER:?}/ttnt-backend:${IMAGE_TAG:-latest}
+    container_name: ttnt-backend
+    <<: [*restart, *logging]
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      LOG_LEVEL: info
+      DATABASE_URL: postgres://${POSTGRES_USER:-ttnt}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ttnt}
+      AI_SERVICE_URL: http://ai-service:8000
+      CORS_ORIGINS: "" # frontend và API cùng domain nên không cần mở CORS
+      ADMIN_API_KEY: ${ADMIN_API_KEY:?Hãy đặt ADMIN_API_KEY (>=16 ký tự) trong file .env}
+      RUN_MIGRATIONS: "true"
+      SEED_ON_START: ${SEED_ON_START:-true}
+      TRUST_PROXY: 2 # Caddy -> nginx -> backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ai-service:
+        condition: service_started
+
+  frontend:
+    image: ghcr.io/${GHCR_OWNER:?}/ttnt-frontend:${IMAGE_TAG:-latest}
+    container_name: ttnt-frontend
+    <<: [*restart, *logging]
+    depends_on:
+      - backend
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: ttnt-caddy
+    <<: [*restart, *logging]
+    environment:
+      # Có tên miền: DOMAIN=app.example.com (Caddy tự lấy và gia hạn HTTPS).
+      # Chưa có tên miền: DOMAIN=:80 (chỉ HTTP, truy cập bằng IP server).
+      DOMAIN: ${DOMAIN:-:80}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data # lưu chứng chỉ HTTPS
+      - caddy_config:/config
+    depends_on:
+      - frontend
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

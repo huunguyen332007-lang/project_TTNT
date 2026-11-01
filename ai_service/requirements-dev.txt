@@ -1,0 +1,4 @@
+# Dùng cho test/CI: không cần torch và model nên cài rất nhanh.
+-r requirements-base.txt
+pytest==8.3.4
+httpx==0.28.1

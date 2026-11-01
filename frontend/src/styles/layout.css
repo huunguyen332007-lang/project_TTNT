@@ -1,0 +1,117 @@
+/* Khung chung: mọi khối chính dùng cùng bề rộng tối đa và lề hai bên. */
+.topbar__inner,
+.hero,
+.section,
+.footer {
+  width: min(var(--max), calc(100% - 2 * var(--gutter)));
+  margin-inline: auto;
+}
+
+.topbar {
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.topbar__inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 64px;
+}
+
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
+  gap: clamp(32px, 6vw, 72px);
+  align-items: start;
+  padding-block: clamp(36px, 6vw, 72px) clamp(32px, 5vw, 56px);
+}
+
+.hero__title {
+  max-width: 14em;
+  font-size: clamp(2.25rem, 5.2vw, 3.75rem);
+  font-weight: 800;
+  line-height: 1.04;
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+}
+
+.hero__lead {
+  max-width: 46ch;
+  margin: 20px 0 28px;
+  font-size: 1.125rem;
+  color: var(--muted);
+}
+
+.section {
+  padding-block: 8px 48px;
+}
+
+.section__head {
+  margin-bottom: 20px;
+}
+
+.section__head--row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.section__title {
+  font-size: 1.5rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.section__title--small {
+  font-size: 1.125rem;
+  margin-bottom: 12px;
+}
+
+.section__sub {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.9375rem;
+  max-width: 70ch;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 28px 20px;
+}
+
+.grid--compact {
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 20px 16px;
+}
+
+.grid.is-stale {
+  opacity: 0.55;
+  transition: opacity 0.15s;
+}
+
+.footer {
+  padding-block: 28px 40px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+@media (max-width: 880px) {
+  .hero {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 560px) {
+  .grid,
+  .grid--compact {
+    grid-template-columns: repeat(auto-fill, minmax(144px, 1fr));
+    gap: 20px 12px;
+  }
+}
