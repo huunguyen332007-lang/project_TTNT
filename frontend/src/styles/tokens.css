@@ -1,0 +1,28 @@
+/*
+  Hướng thiết kế: một công cụ tìm kiếm bằng hình ảnh nên mượn ngôn ngữ của máy ảnh.
+  - Nền xám lạnh như bàn xem phim, mực xanh đen cho chữ, vàng "màn trập" chỉ dùng cho hành động chính.
+  - Điểm nhấn duy nhất là khung ngắm (viewfinder) ở ô thả ảnh; mọi thứ còn lại giữ yên lặng.
+*/
+:root {
+  --paper: #eef0f3;
+  --surface: #ffffff;
+  --ink: #18212b;
+  --muted: #5b6677;
+  --line: #d5dae2;
+  --line-strong: #aab3bf;
+  --focus: #ffc933;
+  --focus-soft: #fff3cc;
+
+  --ok: #127a4b;
+  --warn: #8a5a00;
+  --danger: #b42318;
+
+  --font: 'Be Vietnam Pro', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+
+  --radius-tile: 3px;
+  --radius-control: 6px;
+  --radius-pill: 999px;
+
+  --gutter: clamp(16px, 4vw, 40px);
+  --max: 1200px;
+}

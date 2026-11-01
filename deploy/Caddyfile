@@ -1,0 +1,5 @@
+# {$DOMAIN} lấy từ biến môi trường của container caddy.
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy frontend:80
+}
