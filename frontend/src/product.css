@@ -1,0 +1,73 @@
+/* ===== Giao diện gợi ý sản phẩm (bổ sung cho styles.css) ===== */
+.thumb-fallback{width:100%;height:100%;display:grid;place-items:center;transition:transform .5s}
+.inspiration-card:hover .thumb-fallback{transform:scale(1.04)}
+.product-card{cursor:pointer;display:flex;flex-direction:column}
+.product-card:focus-visible{outline:2px solid var(--purple);outline-offset:2px}
+.product-card .card-content{display:flex;flex-direction:column;flex:1}
+
+/* Ảnh sản phẩm Amazon là ảnh nền trắng -> hiển thị trọn vẹn, không cắt */
+.product-card .card-image-wrap{background:#fff}
+.product-card .card-image-wrap img,.mini-thumb img,.detail-media img{object-fit:contain;background:#fff}
+.product-card .card-image-wrap img{padding:16px}
+.detail-media img{width:100%;height:100%;padding:20px}
+.product-card .card-content h3{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.4;min-height:42px}
+
+.discount-tag{position:absolute;right:13px;top:13px;background:#e9546b;color:#fff;border-radius:5px;padding:5px 7px;font-size:9px;font-weight:700}
+.card-reason{display:flex;align-items:center;gap:6px;font-size:10px;font-weight:600;color:#6f68d8;background:#f3f2ff;border-radius:6px;padding:5px 8px;margin-top:4px;width:fit-content;max-width:100%}
+.card-reason span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.product-card .card-reason{margin-bottom:14px}
+.card-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:auto;padding-top:13px;border-top:1px solid #f0f1f6}
+.price-box{display:flex;align-items:baseline;gap:7px;flex-wrap:wrap}
+.price{font:800 15px Manrope,sans-serif;color:#262838;letter-spacing:-.3px}
+.price-lg{font-size:24px}
+.price-old{font-size:11px;color:#a0a4b1}
+.discount-pill{background:#fdecef;color:#d4455c;border-radius:6px;padding:3px 7px;font-size:10px;font-weight:700}
+.rating{display:flex;align-items:center;gap:4px;font-size:11px;color:#6c7181;font-weight:600}
+.rating svg{color:#f2b33d;fill:#f2b33d}
+.rating small{color:#a0a4b1;font-weight:400;margin-left:2px}
+.sort-label{display:flex;align-items:center;gap:6px}
+.sort-select{border:0;background:transparent;font:600 10px 'DM Sans',sans-serif;color:#6c7181;cursor:pointer;outline:0}
+.heading-actions{display:flex;align-items:center;gap:10px}
+.load-more{display:flex;justify-content:center;padding-top:26px}
+.empty-state code{background:#f0efff;color:#5a53ce;padding:2px 6px;border-radius:5px;font-size:11px}
+.upload-dropzone.static{cursor:default;text-align:center;padding:0 20px}
+.upload-dropzone.static:hover{background:#fbfbff;border-color:#d5d7e6}
+.upload-dropzone.static .dropzone-subtitle{max-width:360px;line-height:1.6}
+
+.field-label{font-size:10px;font-weight:700;letter-spacing:2px;color:#7b75d6;margin:4px 0 10px}
+.chip-wrap{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px}
+.primary-btn{width:100%;border:0;border-radius:10px;background:#625bd7;color:#fff;padding:13px;font-size:12px;font-weight:700;box-shadow:0 4px 10px #625bd72b;transition:background .2s}
+.primary-btn:hover{background:#514ac8}
+
+.viewed-card{display:flex;align-items:center;background:#fff;border:1px solid #e8eaf1;border-radius:11px;padding:9px;min-width:0}
+.viewed-open{flex:1;min-width:0;display:flex;align-items:center;gap:12px;border:0;background:transparent;text-align:left;padding:0}
+.mini-thumb{width:55px;height:55px;border-radius:9px;overflow:hidden;flex-shrink:0;display:block;border:1px solid #f0f1f6}
+.mini-thumb img{width:100%;height:100%}
+.viewed-text{min-width:0;flex:1}
+.viewed-text strong,.viewed-text small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.viewed-text strong{font-size:11px;color:#4d5060}
+.viewed-text small{font-size:10px;color:#9b9eaa;margin-top:5px}
+.viewed-remove{border:0;background:transparent;color:#a0a4b1;padding:5px}
+.viewed-remove:hover{color:#d45d6c}
+
+.detail-modal{position:relative;width:min(800px,100%);max-height:calc(100vh - 40px);overflow:auto;display:grid;grid-template-columns:290px 1fr;background:#fff;border-radius:20px;box-shadow:0 24px 80px #18192e30;animation:riseIn .22s ease}
+.detail-media{min-height:320px;background:#fff;border-right:1px solid #f0f1f6}
+.detail-body{padding:34px 30px 30px}
+.detail-body h2{font:800 17px/1.5 Manrope,sans-serif;letter-spacing:-.3px;color:#292b3c;margin:9px 0 14px;padding-right:30px}
+.detail-price-row{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.detail-stats{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:14px 0}
+.stat{display:inline-flex;align-items:center;gap:5px;border:1px solid #e6e7ef;background:#fafafe;color:#6c7181;border-radius:6px;padding:4px 8px;font-size:10px;font-weight:600}
+.stat.badge{background:#fff7e6;border-color:#f6e2b3;color:#a87613}
+.tag-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.tag-pill{border:1px solid #e6e7ef;background:#fff;color:#7b8090;border-radius:6px;padding:4px 8px;font-size:10px}
+.similar-label{margin-top:24px}
+.similar-row{display:grid;gap:8px}
+.similar-card{display:flex;align-items:center;gap:11px;border:1px solid #e8eaf1;background:#fff;border-radius:10px;padding:8px;text-align:left;transition:.2s}
+.similar-card:hover{border-color:#c9c5f4;background:#faf9ff}
+.similar-card .mini-thumb{width:44px;height:44px}
+.similar-text{min-width:0;flex:1}
+.similar-text strong,.similar-text small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.similar-text strong{font-size:11px;color:#4d5060}
+.similar-text small{font-size:10px;color:#6f68d8;font-weight:600;margin-top:4px}
+
+@media(max-width:700px){.detail-modal{grid-template-columns:1fr}.detail-media{min-height:200px;border-right:0;border-bottom:1px solid #f0f1f6}.detail-body{padding:24px 22px}.heading-actions .filter-button{font-size:0}}
