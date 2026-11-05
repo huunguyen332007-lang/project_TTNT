@@ -1,75 +1,140 @@
-import React from 'react';
-import { useMemo, useRef, useState } from "react";
+import React from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Search, ImagePlus, ArrowUpRight, Sparkles, Compass, Clock3,
-  X, Upload, Camera, FileImage, Menu, SlidersHorizontal, Command
+  Search, ArrowUpRight, Sparkles, Compass, Clock3, X, Menu,
+  SlidersHorizontal, Command, History, Trash2
 } from "lucide-react";
+import { getRecommendations, loadCatalog } from "./api.js";
+import { similarTo, budgetOptions } from "./recommender.js";
+import ProductCard from "./components/ProductCard.jsx";
+import ProductThumb from "./components/ProductThumb.jsx";
+import PreferenceModal from "./components/PreferenceModal.jsx";
+import DetailModal from "./components/DetailModal.jsx";
 
-const sampleItems = [
-  { id: 1, title: "Không gian làm việc tối giản", category: "Thiết kế", tag: "INSPIRATION", image: "https://images.unsplash.com/photo-1497366754035-f200968a6e72?auto=format&fit=crop&w=900&q=85", description: "Ánh sáng tự nhiên, bàn gỗ sáng và những chi tiết vừa đủ." },
-  { id: 2, title: "Kiến trúc với đường nét mềm", category: "Kiến trúc", tag: "ARCHITECTURE", image: "https://images.unsplash.com/photo-1600210492486-724fe5c67fb0?auto=format&fit=crop&w=900&q=85", description: "Một góc không gian yên tĩnh với chất liệu tự nhiên." },
-  { id: 3, title: "Bảng màu dịu nhẹ", category: "Màu sắc", tag: "COLOR STUDY", image: "https://images.unsplash.com/photo-1494438639946-1ebd1d20bf85?auto=format&fit=crop&w=900&q=85", description: "Trắng kem, be và nâu tạo cảm giác ấm áp, cân bằng." },
-  { id: 4, title: "Thiết kế sản phẩm hiện đại", category: "Sản phẩm", tag: "PRODUCT", image: "https://images.unsplash.com/photo-1490312278390-ab64016e0aa9?auto=format&fit=crop&w=900&q=85", description: "Hình khối gọn gàng và công năng được đặt lên trước." },
-  { id: 5, title: "Góc đọc sách bên cửa sổ", category: "Lối sống", tag: "SLOW LIVING", image: "https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=900&q=85", description: "Một khoảng nghỉ nhỏ dành cho đọc sách và suy nghĩ." },
-  { id: 6, title: "Cảm hứng từ thiên nhiên", category: "Thiên nhiên", tag: "NATURE", image: "https://images.unsplash.com/photo-1470252649378-9c29740c9fa8?auto=format&fit=crop&w=900&q=85", description: "Sắc xanh và ánh nắng tạo nên bảng màu giàu năng lượng." },
+const PAGE_SIZE = 24;
+
+function usePersistentState(key, initial) {
+  const [value, setValue] = useState(() => {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : initial;
+    } catch {
+      return initial;
+    }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* bỏ qua */ }
+  }, [key, value]);
+  return [value, setValue];
+}
+
+const SORTS = [
+  { key: "relevance", label: "Phù hợp nhất" },
+  { key: "priceAsc", label: "Giá tăng dần" },
+  { key: "priceDesc", label: "Giá giảm dần" },
+  { key: "rating", label: "Đánh giá cao" },
 ];
-
-const categories = ["Tất cả", "Thiết kế", "Kiến trúc", "Màu sắc", "Sản phẩm", "Lối sống", "Thiên nhiên"];
 
 export default function App() {
   const [query, setQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState("Tất cả");
-  const [uploadedImages, setUploadedImages] = useState([]);
-  const [showUpload, setShowUpload] = useState(false);
+  const [sort, setSort] = useState("relevance");
+  const [interests, setInterests] = usePersistentState("rec.interests", []);
+  const [budget, setBudget] = usePersistentState("rec.budget", "any");
+  const [viewed, setViewed] = usePersistentState("rec.viewed", []);
+  const [showPrefs, setShowPrefs] = useState(false);
+  const [selected, setSelected] = useState(null);
   const [searched, setSearched] = useState(false);
-  const fileRef = useRef(null);
+  const [catalog, setCatalog] = useState([]);
+  const [items, setItems] = useState([]);
+  const [source, setSource] = useState("local");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [limit, setLimit] = useState(PAGE_SIZE);
+  const inputRef = useRef(null);
+
+  // Danh mục lấy từ dữ liệu thật, không hard-code
+  useEffect(() => {
+    loadCatalog().then(setCatalog).catch((e) => setError(e.message));
+  }, []);
+  const categoryList = useMemo(() => [...new Set(catalog.map((p) => p.category))].sort(), [catalog]);
+  const categories = useMemo(() => ["Tất cả", ...categoryList], [categoryList]);
+
+  // Gọi bộ gợi ý (debounce 200ms, huỷ request cũ khi tham số đổi)
+  useEffect(() => {
+    const ctrl = new AbortController();
+    const t = setTimeout(async () => {
+      setLoading(true);
+      try {
+        const res = await getRecommendations({ query, category: activeCategory, interests, budget, viewed }, ctrl.signal);
+        setItems(res.items);
+        setSource(res.source);
+        setError("");
+      } catch (e) {
+        if (e.name !== "AbortError") setError(e.message);
+      } finally {
+        if (!ctrl.signal.aborted) setLoading(false);
+      }
+    }, 200);
+    return () => { clearTimeout(t); ctrl.abort(); };
+  }, [query, activeCategory, interests, budget, viewed]);
+
+  // Ctrl/Cmd + K để focus ô tìm kiếm
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); inputRef.current?.focus(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // Đổi bộ lọc/sắp xếp thì quay về trang đầu
+  useEffect(() => { setLimit(PAGE_SIZE); }, [query, activeCategory, interests, budget, sort]);
 
   const results = useMemo(() => {
-    const q = query.trim().toLocaleLowerCase("vi");
-    return sampleItems.filter(item => {
-      const categoryMatch = activeCategory === "Tất cả" || item.category === activeCategory;
-      const textMatch = !q || `${item.title} ${item.category} ${item.description} ${item.tag}`.toLocaleLowerCase("vi").includes(q);
-      return categoryMatch && textMatch;
+    const arr = [...items];
+    if (sort === "priceAsc") arr.sort((a, b) => a.price - b.price);
+    else if (sort === "priceDesc") arr.sort((a, b) => b.price - a.price);
+    else if (sort === "rating") arr.sort((a, b) => b.rating - a.rating || b.reviews - a.reviews);
+    return arr; // "relevance": giữ thứ tự điểm từ bộ gợi ý
+  }, [items, sort]);
+
+  const personalized = interests.length > 0 || viewed.length > 0 || budget !== "any" || !!query.trim();
+
+  function openProduct(p) {
+    setSelected(p);
+    setViewed((prev) => {
+      const { score, reason, ...snap } = p; // chỉ lưu thông tin sản phẩm
+      return [snap, ...prev.filter((x) => x.id !== p.id)].slice(0, 12);
     });
-  }, [query, activeCategory]);
-
-  function handleFiles(files) {
-    const selected = Array.from(files || []).filter(file => file.type.startsWith("image/"));
-    const mapped = selected.map(file => ({
-      id: `${file.name}-${file.lastModified}-${Math.random()}`,
-      name: file.name,
-      url: URL.createObjectURL(file),
-      size: (file.size / 1024 / 1024).toFixed(2) + " MB"
-    }));
-    setUploadedImages(prev => [...prev, ...mapped]);
-    setShowUpload(false);
-  }
-
-  function submitSearch(event) {
-    event?.preventDefault();
-    setSearched(true);
   }
 
   function clearSearch() {
-    setQuery("");
-    setActiveCategory("Tất cả");
-    setSearched(false);
+    setQuery(""); setActiveCategory("Tất cả"); setSearched(false);
   }
+
+  function savePrefs(nextInterests, nextBudget) {
+    setInterests(nextInterests); setBudget(nextBudget); setShowPrefs(false); setSearched(true);
+  }
+
+  const similar = selected ? similarTo(selected, source === "local" ? catalog : items) : [];
+  const budgetLabel = budgetOptions.find((b) => b.key === budget)?.label;
+  const shown = results.slice(0, limit);
 
   return (
     <div className="app-shell">
       <header className="topbar">
-        <a className="brand" href="#" aria-label="Trang chủ" onClick={clearSearch}>
+        <a className="brand" href="#" aria-label="PickForYou trang chủ" onClick={clearSearch}>
           <span className="brand-mark"><Sparkles size={18} strokeWidth={2.4} /></span>
-          <span>Machine<span className="brand-light">Search</span><small>Tìm kiếm</small></span>
+          <span>Pick<span className="brand-light">ForYou</span><small>Gợi ý sản phẩm</small></span>
         </a>
         <nav className="desktop-nav" aria-label="Điều hướng chính">
           <a className="nav-active" href="#discover"><Compass size={16} /> Khám phá</a>
-          <a href="#uploads"><Clock3 size={16} /> Gần đây</a>
+          <a href="#recent"><Clock3 size={16} /> Đã xem</a>
         </nav>
         <div className="top-actions">
           <span className="status-dot" />
-          <span className="status-text">Không gian tìm kiếm của bạn</span>
+          <span className="status-text">{source === "api" ? "Đang dùng mô hình gợi ý" : "Đang dùng dữ liệu mẫu"}</span>
           <button className="icon-button mobile-menu" aria-label="Mở menu"><Menu size={20} /></button>
           <div className="avatar">S</div>
         </div>
@@ -77,53 +142,51 @@ export default function App() {
 
       <main>
         <section className="hero" id="discover">
-          <div className="hero-orb orb-one" /><div className="hero-orb orb-two" />
           <div className="hero-content">
-            <div className="eyebrow"><span className="eyebrow-line" /> TÌM KIẾM THEO CÁCH CỦA BẠN</div>
-            <h1>Ý tưởng hay bắt đầu<br />từ một <span>khám phá.</span></h1>
-            <p className="hero-copy">Tìm kiếm bằng từ ngữ, hoặc đưa hình ảnh vào để bắt đầu hành trình của bạn.</p>
+            <div className="eyebrow"><span className="eyebrow-line" /> GỢI Ý THEO CÁCH CỦA BẠN</div>
+            <h1>Sản phẩm phù hợp<br />bắt đầu từ <span>sở thích của bạn.</span></h1>
+            <p className="hero-copy">Tìm kiếm bằng từ khóa, chọn sở thích và ngân sách để nhận danh sách sản phẩm được gợi ý riêng cho bạn.</p>
 
-            <form className="search-panel" onSubmit={submitSearch}>
+            <form className="search-panel" onSubmit={(e) => { e.preventDefault(); setSearched(true); }}>
               <div className="search-input-wrap">
                 <Search className="search-icon" size={22} />
-                <input
-                  value={query}
-                  onChange={e => setQuery(e.target.value)}
-                  placeholder="Bạn đang tìm kiếm điều gì?"
-                  aria-label="Nhập nội dung tìm kiếm"
-                />
+                <input ref={inputRef} value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Tìm sản phẩm, ví dụ: wireless earbuds" aria-label="Nhập sản phẩm cần tìm" />
                 {query && <button type="button" className="clear-button" onClick={() => setQuery("")} aria-label="Xóa nội dung"><X size={17} /></button>}
                 <kbd><Command size={11} /> K</kbd>
               </div>
               <div className="search-divider" />
-              <button type="button" className="image-search-button" onClick={() => setShowUpload(true)}><ImagePlus size={18} /><span>Thêm ảnh</span></button>
-              <button type="submit" className="search-submit">Tìm kiếm <ArrowUpRight size={17} /></button>
+              <button type="button" className="image-search-button" onClick={() => setShowPrefs(true)}><SlidersHorizontal size={18} /><span>Sở thích</span></button>
+              <button type="submit" className="search-submit">Gợi ý <ArrowUpRight size={17} /></button>
             </form>
 
             <div className="search-hints">
               <span>Gợi ý:</span>
-              {["thiết kế tối giản", "phối màu sáng", "không gian xanh"].map(term => (
+              {["wireless earbuds", "gaming laptop", "phone charger"].map((term) => (
                 <button key={term} onClick={() => { setQuery(term); setSearched(true); }}>{term}</button>
               ))}
             </div>
-            {uploadedImages.length > 0 && (
+            {(interests.length > 0 || budget !== "any") && (
               <div className="upload-summary">
-                <FileImage size={16} /><span>Đã thêm {uploadedImages.length} hình ảnh</span>
-                <button onClick={() => document.getElementById("uploads").scrollIntoView({ behavior: "smooth" })}>Xem ảnh <ArrowUpRight size={13} /></button>
+                <SlidersHorizontal size={16} />
+                <span>
+                  {interests.length > 0 ? `${interests.length} sở thích` : "Chưa chọn danh mục"}
+                  {budget !== "any" ? ` · ${budgetLabel}` : ""}
+                </span>
+                <button onClick={() => setShowPrefs(true)}>Chỉnh sửa <ArrowUpRight size={13} /></button>
               </div>
             )}
           </div>
-          <div className="hero-footnote"><span className="tiny-star">✳</span> Tò mò một chút. Khám phá nhiều hơn.</div>
+          <div className="hero-footnote"><span className="tiny-star">✳</span> Càng xem nhiều, gợi ý càng chuẩn.</div>
         </section>
 
         <section className="results-section">
           <div className="section-heading">
             <div>
-              <div className="section-kicker">KHÔNG GIAN Ý TƯỞNG</div>
-              <h2>{searched || query ? "Kết quả dành cho bạn" : "Bắt đầu từ cảm hứng"}</h2>
-              <p>{query ? <>Đang tìm với từ khóa <strong>“{query}”</strong></> : "Một vài gợi ý để bạn bắt đầu khám phá."}</p>
+              <div className="section-kicker">DÀNH CHO BẠN</div>
+              <h2>{personalized || searched ? "Gợi ý phù hợp với bạn" : "Sản phẩm được quan tâm nhiều"}</h2>
+              <p>{query ? <>Đang tìm với từ khóa <strong>“{query}”</strong></> : "Chọn sở thích hoặc xem vài sản phẩm để nhận gợi ý tốt hơn."}</p>
             </div>
-            <button className="filter-button" onClick={() => { setQuery(""); setActiveCategory("Tất cả"); }}><SlidersHorizontal size={16} /> Đặt lại bộ lọc</button>
+            <button className="filter-button" onClick={() => { setQuery(""); setActiveCategory("Tất cả"); setInterests([]); setBudget("any"); }}><SlidersHorizontal size={16} /> Đặt lại bộ lọc</button>
           </div>
 
           <div className="category-row" role="tablist" aria-label="Lọc theo danh mục">
@@ -134,75 +197,84 @@ export default function App() {
             ))}
           </div>
 
-          <div className="result-meta"><span><b>{results.length.toString().padStart(2, "0")}</b> kết quả gợi ý</span><span className="sort-label">Sắp xếp: <strong>Phù hợp nhất <span>⌄</span></strong></span></div>
+          <div className="result-meta">
+            <span><b>{results.length.toString().padStart(2, "0")}</b> sản phẩm gợi ý{loading ? " · đang cập nhật…" : ""}</span>
+            <label className="sort-label">Sắp xếp:
+              <select className="sort-select" value={sort} onChange={(e) => setSort(e.target.value)}>
+                {SORTS.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
+              </select>
+            </label>
+          </div>
 
-          {results.length ? (
-            <div className="inspiration-grid">
-              {results.map((item, index) => (
-                <article className={`inspiration-card card-${index % 3}`} key={item.id}>
-                  <div className="card-image-wrap">
-                    <img src={item.image} alt={item.title} loading="lazy" />
-                    <span className="image-tag">{item.tag}</span>
-                    <button className="card-open" aria-label={`Xem ${item.title}`} onClick={() => setQuery(item.title)}><ArrowUpRight size={18} /></button>
-                  </div>
-                  <div className="card-content">
-                    <div className="card-category">{item.category}</div>
-                    <h3>{item.title}</h3>
-                    <p>{item.description}</p>
-                  </div>
-                </article>
-              ))}
+          {error ? (
+            <div className="empty-state">
+              <div className="empty-icon"><X size={25} /></div>
+              <h3>Không tải được dữ liệu</h3>
+              <p>{error}. Hãy chạy <code>python scripts/build_products.py</code> để tạo <code>public/products.json</code>.</p>
             </div>
-          ) : (
+          ) : results.length ? (
+            <>
+              <div className="inspiration-grid">
+                {shown.map((p, i) => (
+                  <ProductCard key={p.id} product={p} index={i} personalized={personalized && sort === "relevance"} onOpen={openProduct} />
+                ))}
+              </div>
+              {results.length > shown.length && (
+                <div className="load-more">
+                  <button className="filter-button" onClick={() => setLimit((l) => l + PAGE_SIZE)}>
+                    Xem thêm ({results.length - shown.length} sản phẩm)
+                  </button>
+                </div>
+              )}
+            </>
+          ) : !loading ? (
             <div className="empty-state">
               <div className="empty-icon"><Search size={25} /></div>
-              <h3>Chưa tìm thấy kết quả phù hợp</h3>
-              <p>Thử từ khóa khác hoặc chọn danh mục “Tất cả” nhé.</p>
+              <h3>Chưa có sản phẩm phù hợp</h3>
+              <p>Dữ liệu sản phẩm bằng tiếng Anh — thử từ khóa tiếng Anh hoặc chọn danh mục “Tất cả” nhé.</p>
               <button onClick={clearSearch}>Xóa bộ lọc</button>
             </div>
-          )}
+          ) : null}
         </section>
 
-        <section className="uploads-section" id="uploads">
-          <div className="uploads-heading"><div><div className="section-kicker">THƯ VIỆN CỦA BẠN</div><h2>Hình ảnh đã thêm</h2></div><span className="upload-count">{uploadedImages.length} tệp</span></div>
-          {uploadedImages.length === 0 ? (
-            <button className="upload-dropzone" onClick={() => setShowUpload(true)}>
-              <span className="dropzone-icon"><ImagePlus size={22} /></span>
-              <span className="dropzone-title">Thêm hình ảnh để bắt đầu</span>
-              <span className="dropzone-subtitle">Chọn ảnh từ thiết bị của bạn · PNG, JPG, WEBP</span>
-              <span className="dropzone-cta"><Upload size={15} /> Chọn hình ảnh</span>
-            </button>
+        <section className="uploads-section" id="recent">
+          <div className="uploads-heading">
+            <div><div className="section-kicker">LỊCH SỬ CỦA BẠN</div><h2>Sản phẩm đã xem</h2></div>
+            <div className="heading-actions">
+              <span className="upload-count">{viewed.length} sản phẩm</span>
+              {viewed.length > 0 && <button className="filter-button" onClick={() => setViewed([])}><Trash2 size={15} /> Xóa lịch sử</button>}
+            </div>
+          </div>
+          {viewed.length === 0 ? (
+            <div className="upload-dropzone static">
+              <span className="dropzone-icon"><History size={22} /></span>
+              <span className="dropzone-title">Chưa có sản phẩm nào</span>
+              <span className="dropzone-subtitle">Bấm vào một sản phẩm để xem chi tiết — các gợi ý sẽ bám theo những gì bạn quan tâm.</span>
+            </div>
           ) : (
             <div className="uploaded-grid">
-              {uploadedImages.map(img => <div className="uploaded-card" key={img.id}><img src={img.url} alt={img.name} /><div><strong>{img.name}</strong><small>{img.size}</small></div><button aria-label={`Xóa ${img.name}`} onClick={() => setUploadedImages(prev => prev.filter(x => x.id !== img.id))}><X size={16} /></button></div>)}
-              <button className="add-more" onClick={() => setShowUpload(true)}><ImagePlus size={22} /><span>Thêm ảnh khác</span></button>
+              {viewed.slice(0, 6).map((v) => (
+                <div className="viewed-card" key={v.id}>
+                  <button className="viewed-open" onClick={() => openProduct(v)}>
+                    <span className="mini-thumb"><ProductThumb product={v} size={22} /></span>
+                    <span className="viewed-text"><strong>{v.name}</strong><small>{v.category}</small></span>
+                  </button>
+                  <button className="viewed-remove" aria-label={`Xóa ${v.name}`} onClick={() => setViewed((prev) => prev.filter((x) => x.id !== v.id))}><X size={16} /></button>
+                </div>
+              ))}
             </div>
           )}
         </section>
       </main>
 
-      <footer><a className="footer-brand" href="#"><span className="brand-mark"><Sparkles size={14} /></span>Search Tool</a><span>Khám phá điều mới, theo cách riêng của bạn.</span><span className="footer-right">Được thiết kế để tìm thấy cảm hứng <span>✳</span></span></footer>
+      <footer>
+        <a className="footer-brand" href="#"><span className="brand-mark"><Sparkles size={14} /></span> PickForYou</a>
+        <span>Gợi ý sản phẩm theo sở thích và hành vi của bạn.</span>
+        <span className="footer-right">Đồ án cuối kì · Phát triển nền tảng AI <span>✳</span></span>
+      </footer>
 
-      {showUpload && (
-        <div className="modal-backdrop" onClick={() => setShowUpload(false)}>
-          <div className="upload-modal" role="dialog" aria-modal="true" aria-labelledby="upload-title" onClick={e => e.stopPropagation()}>
-            <button className="modal-close" onClick={() => setShowUpload(false)} aria-label="Đóng"><X size={20} /></button>
-            <div className="modal-icon"><ImagePlus size={24} /></div>
-            <div className="section-kicker">TÌM KIẾM BẰNG HÌNH ẢNH</div>
-            <h2 id="upload-title">Một hình ảnh nói lên nhiều điều.</h2>
-            <p>Tải ảnh lên để lưu vào thư viện của bạn. Bạn có thể thêm nhiều ảnh cùng lúc.</p>
-            <button className="modal-dropzone" onClick={() => fileRef.current?.click()} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); handleFiles(e.dataTransfer.files); }}>
-              <span className="modal-upload-icon"><Camera size={23} /></span>
-              <strong>Kéo thả ảnh vào đây</strong>
-              <span>hoặc nhấn để chọn tệp từ thiết bị</span>
-              <span className="modal-file-types">PNG · JPG · WEBP · GIF</span>
-            </button>
-            <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={e => handleFiles(e.target.files)} />
-            <button className="modal-cancel" onClick={() => setShowUpload(false)}>Để sau</button>
-            <small className="privacy-note">Ảnh được hiển thị trong phiên làm việc trên trình duyệt này.</small>
-          </div>
-        </div>
-      )}
+      {showPrefs && <PreferenceModal categories={categoryList} interests={interests} budget={budget} onSave={savePrefs} onClose={() => setShowPrefs(false)} />}
+      {selected && <DetailModal product={selected} similar={similar} onClose={() => setSelected(null)} onOpen={openProduct} />}
     </div>
   );
 }
