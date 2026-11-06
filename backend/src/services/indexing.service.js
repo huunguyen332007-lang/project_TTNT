@@ -32,23 +32,29 @@ export class IndexingService {
     });
   }
 
-  /** Lập chỉ mục mọi sản phẩm còn thiếu embedding. Trả về số lượng thành công/thất bại. */
-  async reindexMissing({ batchSize = 20 } = {}) {
+  /**
+   * Lập chỉ mục mọi sản phẩm còn thiếu embedding. Trả về số lượng thành công/thất bại.
+   * `concurrency` > 1 để chồng thời gian tải ảnh từ xa lên nhau (mặc định 1 = tuần tự).
+   */
+  async reindexMissing({ batchSize = 20, concurrency = 1 } = {}) {
     let indexed = 0;
     const failedIds = [];
     for (;;) {
       const batch = await this.products.findNeedingEmbeddings({ limit: batchSize, excludeIds: failedIds });
       if (!batch.length) break;
-      for (const product of batch) {
-        try {
-          await this.indexOne(product);
-          indexed++;
-        } catch (err) {
-          if (err.code === ErrorCodes.AI_UNAVAILABLE) throw err; // AI chết thì dừng cả mẻ, thử lại sau
-          failedIds.push(product.id);
-          this.logger.warn({ err, productId: product.id }, 'Không lập được chỉ mục sản phẩm');
-        }
+      for (let i = 0; i < batch.length; i += concurrency) {
+        const chunk = batch.slice(i, i + concurrency);
+        const results = await Promise.allSettled(chunk.map((product) => this.indexOne(product)));
+        results.forEach((result, j) => {
+          if (result.status === 'fulfilled') return void indexed++;
+          if (result.reason?.code === ErrorCodes.AI_UNAVAILABLE) return;
+          failedIds.push(chunk[j].id);
+          this.logger.warn({ err: result.reason, productId: chunk[j].id }, 'Không lập được chỉ mục sản phẩm');
+        });
+        const aiDown = results.find((r) => r.status === 'rejected' && r.reason?.code === ErrorCodes.AI_UNAVAILABLE);
+        if (aiDown) throw aiDown.reason; // AI chết thì dừng cả mẻ, thử lại sau
       }
+      this.logger.info({ indexed, failed: failedIds.length }, 'Tiến độ lập chỉ mục');
     }
     return { indexed, failed: failedIds.length };
   }
