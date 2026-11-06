@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { X, SlidersHorizontal } from "lucide-react";
-import { budgetOptions } from "../recommender.js";
+import { budgetOptions } from "../budgets.js";
 
 export default function PreferenceModal({ categories, interests, budget, onSave, onClose }) {
   const [draftInterests, setDraftInterests] = useState(interests);
@@ -14,7 +14,7 @@ export default function PreferenceModal({ categories, interests, budget, onSave,
         <div className="modal-icon"><SlidersHorizontal size={24} /></div>
         <div className="section-kicker">CÁ NHÂN HÓA GỢI Ý</div>
         <h2 id="pref-title">Bạn quan tâm điều gì?</h2>
-        <p>Chọn danh mục và ngân sách để chúng tôi gợi ý đúng hơn. Bạn có thể đổi bất cứ lúc nào.</p>
+        <p>Chọn danh mục yêu thích để được ưu tiên, và ngân sách để chỉ xem sản phẩm trong tầm giá. Bạn có thể đổi bất cứ lúc nào.</p>
 
         <div className="field-label">DANH MỤC YÊU THÍCH</div>
         <div className="chip-wrap">
@@ -32,7 +32,7 @@ export default function PreferenceModal({ categories, interests, budget, onSave,
 
         <button className="primary-btn" onClick={() => onSave(draftInterests, draftBudget)}>Lưu và xem gợi ý</button>
         <button className="modal-cancel" onClick={() => { setDraftInterests([]); setDraftBudget("any"); }}>Đặt lại</button>
-        <small className="privacy-note">Sở thích chỉ được lưu trên trình duyệt này.</small>
+        <small className="privacy-note">Sở thích và lịch sử xem chỉ được lưu trên trình duyệt này.</small>
       </div>
     </div>
   );

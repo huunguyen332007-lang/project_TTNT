@@ -1,68 +1,95 @@
-import { recommend } from "./recommender.js";
+import { saveSearchRequest } from "./searchCache.js";
 
-const USE_API = import.meta.env.VITE_USE_API === "true";
+// Gọi backend của dự án (cùng domain qua Vite proxy khi dev, qua nginx khi deploy).
 const API_URL = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
 
-// Chuẩn hóa 1 sản phẩm: nhận cả tên trường của frontend và tên cột gốc trong Recomend_for_cli.xlsx
+function getClientId() {
+  const key = "ttnt.clientId";
+  try {
+    let id = localStorage.getItem(key);
+    if (!id) {
+      id = crypto.randomUUID?.() || "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+        const r = Math.random() * 16 | 0;
+        return (c === "x" ? r : (r & 0x3 | 0x8)).toString(16);
+      });
+      localStorage.setItem(key, id);
+    }
+    return id;
+  } catch {
+    return "00000000-0000-4000-8000-000000000000";
+  }
+}
+
+async function request(path, { method = "GET", body, signal } = {}) {
+  let res;
+  try {
+    res = await fetch(`${API_URL}/api${path}`, {
+      method,
+      signal,
+      headers: { "X-Client-Id": getClientId(), ...(body && !(body instanceof FormData) ? { "Content-Type": "application/json" } : {}) },
+      body: body instanceof FormData ? body : body ? JSON.stringify(body) : undefined,
+    });
+  } catch (err) {
+    if (err.name === "AbortError") throw err;
+    throw new Error("Không kết nối được máy chủ. Hãy kiểm tra backend đã chạy chưa.");
+  }
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(data?.error?.message || `Lỗi máy chủ (HTTP ${res.status})`);
+  return data;
+}
+
+// Backend trả sản phẩm dạng { title, imageUrl, tag, rating, price, sourceUrl, ... }; giao diện dùng tên trường dưới đây.
 export function normalizeProduct(r) {
-  const tags = r.tags ?? [];
-  const price = Number(r.price ?? r.discounted_price ?? 0);
   return {
-    id: r.id ?? r.product_id,
-    name: r.name ?? r.product_title ?? "Sản phẩm",
-    category: r.category ?? r.product_category ?? "Khác",
-    brand: r.brand ?? "",
-    price,
-    originalPrice: Number(r.originalPrice ?? r.original_price ?? price),
-    discount: Number(r.discount ?? r.discount_percentage ?? 0),
-    rating: Number(r.rating ?? r.product_rating ?? 0),
-    reviews: Number(r.reviews ?? r.total_reviews ?? 0),
-    sold: Number(r.sold ?? r.purchased_last_month ?? 0),
-    badge: r.badge ?? "",
-    coupon: Boolean(r.coupon),
-    image: r.image ?? r.product_image_url ?? null,
-    tags: Array.isArray(tags) ? tags : String(tags).split(",").map((t) => t.trim()).filter(Boolean),
-    score: r.score ?? 0,
+    id: r.id,
+    name: r.title ?? "Sản phẩm",
+    category: r.category ?? "Khác",
+    brand: "",
+    price: r.price ?? null,
+    rating: Number(r.rating) || 0, // 0 = chưa có đánh giá
+    reviews: 0,
+    tags: r.tag ? [r.tag] : [], // nhãn gốc của sản phẩm
+    image: r.imageUrl ?? null,
+    sourceUrl: r.sourceUrl ?? null,
+    score: r.score ?? r.similarity ?? 0,
+    match: typeof r.similarity === "number" ? Math.min(1, Math.max(0, r.similarity)) : null, // độ khớp 0..1 (cosine similarity, không phải xác suất)
     reason: r.reason ?? "Gợi ý cho bạn",
   };
 }
 
-// Danh mục sản phẩm cho chế độ dữ liệu mẫu: public/products.json (tạo bằng scripts/build_products.py)
-let catalogPromise;
-export function loadCatalog() {
-  catalogPromise ??= fetch(`${import.meta.env.BASE_URL}products.json`)
-    .then((r) => {
-      if (!r.ok) throw new Error(`Không tải được products.json (HTTP ${r.status})`);
-      return r.json();
-    })
-    .then((rows) => rows.map(normalizeProduct));
-  return catalogPromise;
-}
+export const getCategories = (signal) => request("/categories", { signal }).then((d) => d.items.map((c) => c.name));
+
+export const getSimilar = (id, signal) =>
+  request(`/products/${id}/similar?limit=3`, { signal }).then((d) => d.items.map(normalizeProduct));
 
 /**
- * params: { query, category, interests, budget, viewed }
- * Hợp đồng với backend: POST {API_URL}/api/recommend
- *   body  : { query, category, interests, budget, viewedIds }
- *   return: { items: [{ id, name, category, price, rating, reviews, tags, image, score, reason, ... }] }
+ * POST /api/recommend  ->  { items, total, mode }
+ *   mode: 'hybrid' (tìm kiếm AI) | 'keyword' (AI tạm không khả dụng) | 'personalized' | 'browse'
  */
-export async function getRecommendations(params, signal) {
-  if (USE_API) {
-    try {
-      const { viewed, ...rest } = params;
-      const res = await fetch(`${API_URL}/api/recommend`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...rest, viewedIds: viewed.map((v) => v.id) }),
-        signal,
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      return { items: data.items.map(normalizeProduct), source: "api" };
-    } catch (err) {
-      if (err.name === "AbortError") throw err;
-      console.warn("API lỗi, chuyển sang dữ liệu mẫu:", err.message);
-    }
+export async function getRecommendations({ query, category, interests, budget, viewedIds, sort, limit, offset }, signal) {
+  const data = await request("/recommend", {
+    method: "POST",
+    signal,
+    body: { query, interests, budget, viewedIds, sort, limit, offset, ...(category && category !== "Tất cả" ? { category } : {}) },
+  });
+  const result = { items: data.items.map(normalizeProduct), total: data.total, mode: data.mode };
+  if (query?.trim() && Number(offset || 0) === 0) {
+    await saveSearchRequest({ kind: "text", query: query.trim(), category: category || "Tất cả", result });
   }
-  const catalog = await loadCatalog();
-  return { items: recommend(catalog, params), source: "local" };
+  return result;
+}
+
+/** Tìm bằng ảnh: POST /api/search/image (multipart). Kết quả đã xếp theo độ giống, không phân trang. */
+export async function searchByImage(file, category, signal) {
+  const form = new FormData();
+  form.append("image", file);
+  form.append("limit", "48");
+  if (category && category !== "Tất cả") form.append("category", category);
+  const data = await request("/search/image", { method: "POST", body: form, signal });
+  const items = data.items.map((r) =>
+    normalizeProduct({ ...r, reason: `Giống ảnh của bạn · ${Math.round((r.similarity ?? 0) * 100)}%` })
+  );
+  const result = { items, total: items.length, mode: "image" };
+  await saveSearchRequest({ kind: "image", query: "", category: category || "Tất cả", imageBlob: file, imageName: file.name, result });
+  return result;
 }

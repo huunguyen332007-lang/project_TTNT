@@ -71,3 +71,27 @@
 .similar-text small{font-size:10px;color:#6f68d8;font-weight:600;margin-top:4px}
 
 @media(max-width:700px){.detail-modal{grid-template-columns:1fr}.detail-media{min-height:200px;border-right:0;border-bottom:1px solid #f0f1f6}.detail-body{padding:24px 22px}.heading-actions .filter-button{font-size:0}}
+
+/* ===== Bổ sung khi nối backend thật (VND, tìm bằng ảnh, liên kết sàn) ===== */
+.price-none{font-weight:600;font-size:12px;color:#a0a4b1;letter-spacing:0}
+.price-lg.price-none{font-size:16px}
+.detail-link{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:20px;text-decoration:none}
+.modal-error{margin:12px 0 0;font-size:11px;color:#d4455c}
+.upload-summary img{width:28px;height:28px;border-radius:6px;object-fit:cover;border:1px solid #e8eaf1}
+.error-actions{display:flex;justify-content:center;margin-top:14px}
+@media(max-width:620px){.search-panel{grid-template-columns:1fr 1fr auto}}
+
+/* Độ khớp và tìm kiếm gần đây */
+.match-badge{font-size:10px;font-weight:700;color:#2f9a72;background:#e3f6ee;border-radius:6px;padding:3px 7px;white-space:nowrap}
+.product-card .card-foot{gap:8px;flex-wrap:wrap}
+.recent-section{padding:44px clamp(22px,6.1vw,96px) 0}
+.recent-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:13px;margin-top:20px}
+.recent-card{display:flex;align-items:center;gap:12px;text-align:left;background:#fff;border:1px solid #e8eaf1;border-radius:11px;padding:10px;min-width:0;color:inherit;transition:.2s}
+.recent-card:hover,.recent-card:focus-visible{border-color:#c7c3f2;box-shadow:0 8px 22px #2829430c;outline:0}
+.recent-thumb{width:64px;height:64px;border-radius:9px;overflow:hidden;flex-shrink:0;display:grid;place-items:center;background:#f3f2ff;color:#7771d5;border:1px solid #f0f1f6}
+.recent-thumb img{width:100%;height:100%;object-fit:cover}
+.recent-text{display:flex;flex-direction:column;gap:4px;min-width:0;flex:1}
+.recent-text strong{display:flex;align-items:center;gap:5px;font-size:12px;color:#45495a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.recent-text small{font-size:10px;color:#9b9eaa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:6px}
+.recent-top{color:#6f68d8!important}
+@media(max-width:900px){.recent-grid{grid-template-columns:1fr}.recent-section{padding:36px 19px 0}}

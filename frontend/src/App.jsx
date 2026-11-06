@@ -2,16 +2,18 @@ import React from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Search, ArrowUpRight, Sparkles, Compass, Clock3, X, Menu,
-  SlidersHorizontal, Command, History, Trash2
+  SlidersHorizontal, Command, History, Trash2, Camera
 } from "lucide-react";
-import { getRecommendations, loadCatalog } from "./api.js";
-import { similarTo, budgetOptions } from "./recommender.js";
+import { getCategories, getSimilar } from "./api.js";
+import { clearSearchRequests, getRecentSearches } from "./searchCache.js";
+import { useRecommendations } from "./useRecommendations.js";
+import { budgetOptions } from "./budgets.js";
 import ProductCard from "./components/ProductCard.jsx";
 import ProductThumb from "./components/ProductThumb.jsx";
 import PreferenceModal from "./components/PreferenceModal.jsx";
+import ImageSearchModal from "./components/ImageSearchModal.jsx";
 import DetailModal from "./components/DetailModal.jsx";
-
-const PAGE_SIZE = 24;
+import RecentSearches from "./components/RecentSearches.jsx";
 
 function usePersistentState(key, initial) {
   const [value, setValue] = useState(() => {
@@ -35,49 +37,64 @@ const SORTS = [
   { key: "rating", label: "Đánh giá cao" },
 ];
 
+// Trạng thái hiển thị ở góc trên theo chế độ mà backend đang dùng.
+const STATUS = {
+  hybrid: "Tìm kiếm AI đang hoạt động",
+  keyword: "AI tạm nghỉ · tìm theo từ khóa",
+  personalized: "Gợi ý theo hồ sơ của bạn",
+  browse: "Sản phẩm nổi bật",
+  image: "Đang tìm bằng ảnh",
+};
+
 export default function App() {
   const [query, setQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState("Tất cả");
   const [sort, setSort] = useState("relevance");
-  const [interests, setInterests] = usePersistentState("rec.interests", []);
-  const [budget, setBudget] = usePersistentState("rec.budget", "any");
-  const [viewed, setViewed] = usePersistentState("rec.viewed", []);
+  const [interests, setInterests] = usePersistentState("ttnt.interests", []);
+  const [budget, setBudget] = usePersistentState("ttnt.budget", "any");
+  const [viewed, setViewed] = usePersistentState("ttnt.viewed", []);
   const [showPrefs, setShowPrefs] = useState(false);
+  const [showImage, setShowImage] = useState(false);
   const [selected, setSelected] = useState(null);
+  const [similar, setSimilar] = useState([]);
   const [searched, setSearched] = useState(false);
-  const [catalog, setCatalog] = useState([]);
-  const [items, setItems] = useState([]);
-  const [source, setSource] = useState("local");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [limit, setLimit] = useState(PAGE_SIZE);
+  const [categoryList, setCategoryList] = useState([]);
+  const [image, setImage] = useState(null); // { id, file, url }
+  const [recent, setRecent] = useState([]); // 3 tìm kiếm gần nhất đã lưu trên thiết bị
   const inputRef = useRef(null);
 
-  // Danh mục lấy từ dữ liệu thật, không hard-code
-  useEffect(() => {
-    loadCatalog().then(setCatalog).catch((e) => setError(e.message));
-  }, []);
-  const categoryList = useMemo(() => [...new Set(catalog.map((p) => p.category))].sort(), [catalog]);
+  const rec = useRecommendations({
+    query, category: activeCategory, interests, budget, viewedIds: viewed.map((v) => v.id), sort, image,
+  });
+  const hasActiveSearch = Boolean(query.trim() || image);
   const categories = useMemo(() => ["Tất cả", ...categoryList], [categoryList]);
 
-  // Gọi bộ gợi ý (debounce 200ms, huỷ request cũ khi tham số đổi)
+  // Khi vào lại (hoặc quay về trang chủ sau một tìm kiếm) hiển thị 3 tìm kiếm gần nhất đã lưu.
+  useEffect(() => {
+    if (hasActiveSearch) return undefined;
+    let alive = true;
+    getRecentSearches(3).then((list) => { if (alive) setRecent(list); });
+    return () => { alive = false; };
+  }, [hasActiveSearch]);
+
+  // Danh mục lấy từ backend (không hard-code)
   useEffect(() => {
     const ctrl = new AbortController();
-    const t = setTimeout(async () => {
-      setLoading(true);
-      try {
-        const res = await getRecommendations({ query, category: activeCategory, interests, budget, viewed }, ctrl.signal);
-        setItems(res.items);
-        setSource(res.source);
-        setError("");
-      } catch (e) {
-        if (e.name !== "AbortError") setError(e.message);
-      } finally {
-        if (!ctrl.signal.aborted) setLoading(false);
-      }
-    }, 200);
-    return () => { clearTimeout(t); ctrl.abort(); };
-  }, [query, activeCategory, interests, budget, viewed]);
+    getCategories(ctrl.signal).then(setCategoryList).catch(() => { /* chỉ còn tab "Tất cả" */ });
+    return () => ctrl.abort();
+  }, []);
+
+  // Sản phẩm tương tự (so khớp embedding ở backend)
+  useEffect(() => {
+    setSimilar([]);
+    if (!selected) return;
+    const ctrl = new AbortController();
+    getSimilar(selected.id, ctrl.signal).then(setSimilar).catch(() => { /* không có thì thôi */ });
+    return () => ctrl.abort();
+  }, [selected?.id]);
+
+  // Giải phóng URL xem trước của ảnh đã chọn
+  useEffect(() => () => image && URL.revokeObjectURL(image.url), [image]);
 
   // Ctrl/Cmd + K để focus ô tìm kiếm
   useEffect(() => {
@@ -88,18 +105,17 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // Đổi bộ lọc/sắp xếp thì quay về trang đầu
-  useEffect(() => { setLimit(PAGE_SIZE); }, [query, activeCategory, interests, budget, sort]);
-
+  // Backend đã sắp xếp trên toàn bộ kết quả; riêng tìm bằng ảnh (một danh sách ngắn, không qua /recommend) thì sắp xếp tại chỗ.
   const results = useMemo(() => {
-    const arr = [...items];
-    if (sort === "priceAsc") arr.sort((a, b) => a.price - b.price);
-    else if (sort === "priceDesc") arr.sort((a, b) => b.price - a.price);
-    else if (sort === "rating") arr.sort((a, b) => b.rating - a.rating || b.reviews - a.reviews);
-    return arr; // "relevance": giữ thứ tự điểm từ bộ gợi ý
-  }, [items, sort]);
+    if (rec.mode !== "image" || sort === "relevance") return rec.items;
+    const arr = [...rec.items];
+    if (sort === "priceAsc") arr.sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity));
+    else if (sort === "priceDesc") arr.sort((a, b) => (b.price ?? -Infinity) - (a.price ?? -Infinity));
+    else arr.sort((a, b) => b.rating - a.rating);
+    return arr;
+  }, [rec.items, rec.mode, sort]);
 
-  const personalized = interests.length > 0 || viewed.length > 0 || budget !== "any" || !!query.trim();
+  const personalized = interests.length > 0 || viewed.length > 0 || budget !== "any" || !!query.trim() || !!image;
 
   function openProduct(p) {
     setSelected(p);
@@ -109,17 +125,49 @@ export default function App() {
     });
   }
 
+  function changeQuery(value) {
+    setQuery(value);
+    if (value && image) setImage(null); // mỗi lần chỉ một kiểu tìm kiếm: chữ hoặc ảnh
+  }
+
+  function pickImage(file) {
+    setImage({ id: Date.now(), file, url: URL.createObjectURL(file) });
+    setQuery("");
+    setSearched(true);
+    setShowImage(false);
+  }
+
+  // Bấm vào một tìm kiếm đã lưu: chạy lại đúng từ khóa/ảnh/danh mục đó để kết quả luôn mới.
+  function openRecent(saved) {
+    setActiveCategory(saved.category || "Tất cả");
+    if (saved.kind === "image" && saved.imageBlob) {
+      const file = new File([saved.imageBlob], saved.imageName || "anh-da-luu", { type: saved.imageBlob.type || "image/jpeg" });
+      setImage({ id: Date.now(), file, url: URL.createObjectURL(file), name: saved.imageName || "Ảnh đã tìm" });
+      setQuery("");
+    } else {
+      setImage(null);
+      setQuery(saved.query || "");
+    }
+    setSearched(true);
+    document.getElementById("results")?.scrollIntoView({ behavior: "smooth" });
+  }
+
+  async function clearRecent() {
+    await clearSearchRequests();
+    setRecent([]);
+  }
+
   function clearSearch() {
-    setQuery(""); setActiveCategory("Tất cả"); setSearched(false);
+    setQuery(""); setActiveCategory("Tất cả"); setSearched(false); setImage(null);
   }
 
   function savePrefs(nextInterests, nextBudget) {
     setInterests(nextInterests); setBudget(nextBudget); setShowPrefs(false); setSearched(true);
   }
 
-  const similar = selected ? similarTo(selected, source === "local" ? catalog : items) : [];
   const budgetLabel = budgetOptions.find((b) => b.key === budget)?.label;
-  const shown = results.slice(0, limit);
+  const status = rec.error ? "Có lỗi khi tải dữ liệu" : STATUS[rec.mode] ?? STATUS.browse;
+  const heading = image ? "Sản phẩm giống ảnh của bạn" : personalized || searched ? "Gợi ý phù hợp với bạn" : "Sản phẩm nổi bật";
 
   return (
     <div className="app-shell">
@@ -133,8 +181,8 @@ export default function App() {
           <a href="#recent"><Clock3 size={16} /> Đã xem</a>
         </nav>
         <div className="top-actions">
-          <span className="status-dot" />
-          <span className="status-text">{source === "api" ? "Đang dùng mô hình gợi ý" : "Đang dùng dữ liệu mẫu"}</span>
+          <span className="status-dot" style={rec.error ? { background: "#e9546b", boxShadow: "0 0 0 4px #fdecef" } : undefined} />
+          <span className="status-text">{status}</span>
           <button className="icon-button mobile-menu" aria-label="Mở menu"><Menu size={20} /></button>
           <div className="avatar">S</div>
         </div>
@@ -145,26 +193,34 @@ export default function App() {
           <div className="hero-content">
             <div className="eyebrow"><span className="eyebrow-line" /> GỢI Ý THEO CÁCH CỦA BẠN</div>
             <h1>Sản phẩm phù hợp<br />bắt đầu từ <span>sở thích của bạn.</span></h1>
-            <p className="hero-copy">Tìm kiếm bằng từ khóa, chọn sở thích và ngân sách để nhận danh sách sản phẩm được gợi ý riêng cho bạn.</p>
+            <p className="hero-copy">Tìm bằng từ khóa hoặc bằng ảnh, chọn sở thích và ngân sách để nhận danh sách sản phẩm được gợi ý riêng cho bạn.</p>
 
             <form className="search-panel" onSubmit={(e) => { e.preventDefault(); setSearched(true); }}>
               <div className="search-input-wrap">
                 <Search className="search-icon" size={22} />
-                <input ref={inputRef} value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Tìm sản phẩm, ví dụ: wireless earbuds" aria-label="Nhập sản phẩm cần tìm" />
+                <input ref={inputRef} value={query} onChange={(e) => changeQuery(e.target.value)} placeholder="Tìm sản phẩm, ví dụ: tai nghe bluetooth" aria-label="Nhập sản phẩm cần tìm" />
                 {query && <button type="button" className="clear-button" onClick={() => setQuery("")} aria-label="Xóa nội dung"><X size={17} /></button>}
                 <kbd><Command size={11} /> K</kbd>
               </div>
               <div className="search-divider" />
+              <button type="button" className="image-search-button" onClick={() => setShowImage(true)}><Camera size={18} /><span>Tìm bằng ảnh</span></button>
               <button type="button" className="image-search-button" onClick={() => setShowPrefs(true)}><SlidersHorizontal size={18} /><span>Sở thích</span></button>
               <button type="submit" className="search-submit">Gợi ý <ArrowUpRight size={17} /></button>
             </form>
 
             <div className="search-hints">
               <span>Gợi ý:</span>
-              {["wireless earbuds", "gaming laptop", "phone charger"].map((term) => (
-                <button key={term} onClick={() => { setQuery(term); setSearched(true); }}>{term}</button>
+              {["giày thể thao nam", "son môi lì", "tai nghe bluetooth"].map((term) => (
+                <button key={term} onClick={() => { changeQuery(term); setSearched(true); }}>{term}</button>
               ))}
             </div>
+            {image && (
+              <div className="upload-summary">
+                <img src={image.url} alt="" />
+                <span>Đang tìm bằng ảnh “{image.file?.name || image.name || "Ảnh đã lưu"}”</span>
+                <button onClick={() => setImage(null)}>Bỏ ảnh <X size={13} /></button>
+              </div>
+            )}
             {(interests.length > 0 || budget !== "any") && (
               <div className="upload-summary">
                 <SlidersHorizontal size={16} />
@@ -179,14 +235,20 @@ export default function App() {
           <div className="hero-footnote"><span className="tiny-star">✳</span> Càng xem nhiều, gợi ý càng chuẩn.</div>
         </section>
 
-        <section className="results-section">
+        {recent.length > 0 && !hasActiveSearch && <RecentSearches items={recent} onPick={openRecent} onClear={clearRecent} />}
+
+        <section className="results-section" id="results">
           <div className="section-heading">
             <div>
               <div className="section-kicker">DÀNH CHO BẠN</div>
-              <h2>{personalized || searched ? "Gợi ý phù hợp với bạn" : "Sản phẩm được quan tâm nhiều"}</h2>
-              <p>{query ? <>Đang tìm với từ khóa <strong>“{query}”</strong></> : "Chọn sở thích hoặc xem vài sản phẩm để nhận gợi ý tốt hơn."}</p>
+              <h2>{heading}</h2>
+              <p>
+                {image ? "Xếp theo độ giống về hình ảnh và số sao."
+                  : query ? <>Đang tìm với từ khóa <strong>“{query}”</strong> · xếp theo độ khớp và số sao</>
+                  : "Chọn sở thích hoặc xem vài sản phẩm để nhận gợi ý tốt hơn."}
+              </p>
             </div>
-            <button className="filter-button" onClick={() => { setQuery(""); setActiveCategory("Tất cả"); setInterests([]); setBudget("any"); }}><SlidersHorizontal size={16} /> Đặt lại bộ lọc</button>
+            <button className="filter-button" onClick={() => { setQuery(""); setActiveCategory("Tất cả"); setInterests([]); setBudget("any"); setImage(null); }}><SlidersHorizontal size={16} /> Đặt lại bộ lọc</button>
           </div>
 
           <div className="category-row" role="tablist" aria-label="Lọc theo danh mục">
@@ -198,7 +260,7 @@ export default function App() {
           </div>
 
           <div className="result-meta">
-            <span><b>{results.length.toString().padStart(2, "0")}</b> sản phẩm gợi ý{loading ? " · đang cập nhật…" : ""}</span>
+            <span><b>{rec.total.toString().padStart(2, "0")}</b> sản phẩm gợi ý{rec.loading ? " · đang cập nhật…" : ""}</span>
             <label className="sort-label">Sắp xếp:
               <select className="sort-select" value={sort} onChange={(e) => setSort(e.target.value)}>
                 {SORTS.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
@@ -206,32 +268,33 @@ export default function App() {
             </label>
           </div>
 
-          {error ? (
+          {rec.error ? (
             <div className="empty-state">
               <div className="empty-icon"><X size={25} /></div>
               <h3>Không tải được dữ liệu</h3>
-              <p>{error}. Hãy chạy <code>python scripts/build_products.py</code> để tạo <code>public/products.json</code>.</p>
+              <p>{rec.error}</p>
+              <div className="error-actions"><button onClick={rec.retry}>Thử lại</button></div>
             </div>
           ) : results.length ? (
             <>
               <div className="inspiration-grid">
-                {shown.map((p, i) => (
+                {results.map((p, i) => (
                   <ProductCard key={p.id} product={p} index={i} personalized={personalized && sort === "relevance"} onOpen={openProduct} />
                 ))}
               </div>
-              {results.length > shown.length && (
+              {rec.hasMore && (
                 <div className="load-more">
-                  <button className="filter-button" onClick={() => setLimit((l) => l + PAGE_SIZE)}>
-                    Xem thêm ({results.length - shown.length} sản phẩm)
+                  <button className="filter-button" onClick={rec.loadMore} disabled={rec.loadingMore}>
+                    {rec.loadingMore ? "Đang tải…" : `Xem thêm (${rec.total - rec.items.length} sản phẩm)`}
                   </button>
                 </div>
               )}
             </>
-          ) : !loading ? (
+          ) : !rec.loading ? (
             <div className="empty-state">
               <div className="empty-icon"><Search size={25} /></div>
               <h3>Chưa có sản phẩm phù hợp</h3>
-              <p>Dữ liệu sản phẩm bằng tiếng Anh — thử từ khóa tiếng Anh hoặc chọn danh mục “Tất cả” nhé.</p>
+              <p>Thử từ khóa khác, bỏ bớt bộ lọc ngân sách hoặc chọn danh mục “Tất cả” nhé.</p>
               <button onClick={clearSearch}>Xóa bộ lọc</button>
             </div>
           ) : null}
@@ -274,6 +337,7 @@ export default function App() {
       </footer>
 
       {showPrefs && <PreferenceModal categories={categoryList} interests={interests} budget={budget} onSave={savePrefs} onClose={() => setShowPrefs(false)} />}
+      {showImage && <ImageSearchModal onPick={pickImage} onClose={() => setShowImage(false)} />}
       {selected && <DetailModal product={selected} similar={similar} onClose={() => setSelected(null)} onOpen={openProduct} />}
     </div>
   );
