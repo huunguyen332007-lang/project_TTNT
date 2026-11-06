@@ -36,7 +36,7 @@ export function createContainer({ config, logger, pool }) {
       products: new ProductService({ products: productRepo, indexing, logger }),
       search,
       recommendations: new RecommendationService({ products: productRepo, history: historyRepo }),
-      recommend: new RecommendService({ products: productRepo, search, textImageWeight: config.textImageWeight }),
+      recommend: new RecommendService({ products: productRepo, search, history: historyRepo, textImageWeight: config.textImageWeight }),
       history: new HistoryService({ history: historyRepo }),
       indexing,
     },

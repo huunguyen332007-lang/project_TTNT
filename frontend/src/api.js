@@ -57,6 +57,9 @@ export function normalizeProduct(r) {
   };
 }
 
+/** Xóa lịch sử tìm kiếm lưu trong PostgreSQL của trình duyệt này (để nó thôi ảnh hưởng tới gợi ý). */
+export const clearHistory = () => request("/history", { method: "DELETE" });
+
 export const getCategories = (signal) => request("/categories", { signal }).then((d) => d.items.map((c) => c.name));
 
 export const getSimilar = (id, signal) =>
@@ -72,7 +75,7 @@ export async function getRecommendations({ query, category, interests, budget, v
     signal,
     body: { query, interests, budget, viewedIds, sort, limit, offset, ...(category && category !== "Tất cả" ? { category } : {}) },
   });
-  const result = { items: data.items.map(normalizeProduct), total: data.total, mode: data.mode };
+  const result = { items: data.items.map(normalizeProduct), total: data.total, mode: data.mode, basedOn: data.basedOn ?? [] };
   if (query?.trim() && Number(offset || 0) === 0) {
     await saveSearchRequest({ kind: "text", query: query.trim(), category: category || "Tất cả", result });
   }

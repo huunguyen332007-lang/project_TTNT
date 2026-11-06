@@ -342,6 +342,17 @@ export class ProductRepository {
     return new Map(rows.map((r) => [r.id, r.similarity]));
   }
 
+  /** Độ giống (cosine) của mọi sản phẩm với một vector văn bản bất kỳ, ví dụ khẩu vị rút ra từ lịch sử tìm kiếm. */
+  async similarityToVector(embedding, { category } = {}) {
+    const { rows } = await this.db.query(
+      `SELECT p.id, (1 - (p.text_embedding <=> $1::vector))::float8 AS similarity
+       FROM products p
+       WHERE p.text_embedding IS NOT NULL AND ($2::text IS NULL OR p.category = $2)`,
+      [toVectorLiteral(embedding), category ?? null],
+    );
+    return new Map(rows.map((r) => [r.id, r.similarity]));
+  }
+
   async findLatest({ limit }) {
     const { rows } = await this.db.query(`SELECT ${COLUMNS} FROM products p ORDER BY p.created_at DESC, p.id DESC LIMIT $1`, [limit]);
     return rows.map(toProduct);
