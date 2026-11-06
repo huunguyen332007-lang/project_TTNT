@@ -1,34 +1,34 @@
-import { useState } from 'react';
-import { formatPrice, toPercent } from '../utils/format.js';
+import React from "react";
+import { ArrowUpRight, Sparkles, Star } from "lucide-react";
+import ProductThumb from "./ProductThumb.jsx";
+import { formatPrice } from "../format.js";
 
-export default function ProductCard({ product, onOpen, showMatch = false }) {
-  const [broken, setBroken] = useState(false);
-  const percent = showMatch && typeof product.similarity === 'number' ? toPercent(product.similarity) : null;
-
+export default function ProductCard({ product, index, personalized, onOpen }) {
+  const top = personalized && index < 3;
   return (
-    <li className="card">
-      <button type="button" className="card__button" onClick={() => onOpen(product)}>
-        <span className="card__media">
-          {broken ? (
-            <span className="card__fallback">Không tải được ảnh</span>
-          ) : (
-            <img src={product.imageUrl} alt="" loading="lazy" onError={() => setBroken(true)} />
-          )}
-        </span>
-        <span className="card__body">
-          <span className="card__category">{product.category}</span>
-          <span className="card__title">{product.title}</span>
-          {product.price != null && <span className="card__price">{formatPrice(product.price)}</span>}
-          {percent !== null && (
-            <span className="match">
-              <span className="match__track">
-                <span className="match__fill" style={{ '--match': percent / 100 }} />
-              </span>
-              <span className="match__label">Khớp {percent}%</span>
-            </span>
-          )}
-        </span>
-      </button>
-    </li>
+    <article
+      className={`inspiration-card product-card card-${index % 3}`}
+      tabIndex={0}
+      onClick={() => onOpen(product)}
+      onKeyDown={(e) => e.key === "Enter" && onOpen(product)}
+    >
+      <div className="card-image-wrap">
+        <ProductThumb product={product} />
+        <span className="image-tag">{top ? "TOP GỢI Ý" : product.category.toUpperCase()}</span>
+        <button className="card-open" aria-label={`Xem ${product.name}`} tabIndex={-1}><ArrowUpRight size={18} /></button>
+      </div>
+      <div className="card-content">
+        <div className="card-category">{product.category}</div>
+        <h3 title={product.name}>{product.name}</h3>
+        <div className="card-reason"><Sparkles size={11} /><span>{product.reason}</span></div>
+        <div className="card-foot">
+          <span className="price-box">
+            <span className={`price ${product.price == null ? "price-none" : ""}`}>{formatPrice(product.price)}</span>
+          </span>
+          {product.match != null && <span className="match-badge" title="Độ khớp với tìm kiếm của bạn (cosine similarity)">Khớp {Math.round(product.match * 100)}%</span>}
+          {product.rating > 0 && <span className="rating" aria-label={`Đánh giá ${product.rating} trên 5 sao`}><Star size={12} />{product.rating.toFixed(1)}</span>}
+        </div>
+      </div>
+    </article>
   );
 }

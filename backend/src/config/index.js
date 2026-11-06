@@ -22,7 +22,7 @@ const schema = z.object({
   ADMIN_API_KEY: z.string().min(16, 'ADMIN_API_KEY phải có ít nhất 16 ký tự').optional(),
 
   RUN_MIGRATIONS: bool('true'),
-  SEED_ON_START: bool('false'),
+  IMPORT_CSV_ON_START: bool('true'),
   TRUST_PROXY: z.coerce.number().int().min(0).default(0),
 
   MAX_UPLOAD_MB: z.coerce.number().positive().default(5),
@@ -31,6 +31,8 @@ const schema = z.object({
 
   TEXT_MIN_SIMILARITY: similarity,
   IMAGE_MIN_SIMILARITY: similarity,
+  // Tỉ trọng của độ khớp chữ->ảnh khi tìm bằng chữ (0 = tắt, chỉ so chữ với văn bản sản phẩm).
+  TEXT_IMAGE_WEIGHT: z.coerce.number().min(0).max(1).default(0.3),
 });
 
 const DEFAULT_DEV_ORIGINS = 'http://localhost:5173,http://localhost:8080';
@@ -73,12 +75,13 @@ export function loadConfig(env = process.env) {
     corsOrigins: parseOrigins(env.CORS_ORIGINS),
     adminApiKey: e.ADMIN_API_KEY ?? null,
     runMigrations: e.RUN_MIGRATIONS,
-    seedOnStart: e.SEED_ON_START,
+    importCsvOnStart: e.IMPORT_CSV_ON_START,
     trustProxy: e.TRUST_PROXY,
     maxUploadBytes: Math.round(e.MAX_UPLOAD_MB * 1024 * 1024),
     rateLimitPerMin: e.RATE_LIMIT_PER_MIN,
     searchRateLimitPerMin: e.SEARCH_RATE_LIMIT_PER_MIN,
     textMinSimilarity: e.TEXT_MIN_SIMILARITY,
     imageMinSimilarity: e.IMAGE_MIN_SIMILARITY,
+    textImageWeight: e.TEXT_IMAGE_WEIGHT,
   });
 }

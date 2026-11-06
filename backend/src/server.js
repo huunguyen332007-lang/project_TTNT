@@ -2,7 +2,7 @@ import { loadConfig } from './config/index.js';
 import { createLogger } from './utils/logger.js';
 import { createPool, waitForDatabase } from './db/pool.js';
 import { runMigrations } from './db/migrate.js';
-import { seedIfEmpty } from './db/seed.js';
+import { importCsvOnStartup } from './db/import-csv-on-start.js';
 import { createContainer } from './container.js';
 import { createApp } from './app.js';
 
@@ -15,7 +15,11 @@ async function main() {
   if (config.runMigrations) await runMigrations(pool, logger);
 
   const container = createContainer({ config, logger, pool });
-  if (config.seedOnStart) await seedIfEmpty({ products: container.repositories.products, logger });
+
+  // Nạp CSV vào PostgreSQL trước khi mở API để frontend luôn đọc được dữ liệu thật.
+  if (config.importCsvOnStart) {
+    await importCsvOnStartup({ products: container.repositories.products, logger });
+  }
 
   const app = createApp({ config, logger, services: container.services });
   const server = app.listen(config.port, '0.0.0.0', () => logger.info(`API đang chạy ở cổng ${config.port}`));

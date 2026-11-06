@@ -80,3 +80,36 @@ test('searchImage: ảnh không hợp lệ -> lỗi từ AI được giữ nguy�
   const { svc } = build({ embedUploadedImage: async () => { throw bad; } });
   await assert.rejects(() => svc.searchImage({ file: { buffer: Buffer.alloc(1), mimetype: 'image/png' }, limit: 5 }), (e) => e === bad);
 });
+
+test('searchText: xếp lại để sản phẩm khớp cao và nhiều sao lên đầu, lấy rộng hơn limit rồi mới cắt', async () => {
+  const { svc, calls } = build();
+  svc.products.searchHybrid = async (a) => (calls.hybrid.push(a), [
+    { id: 1, similarity: 0.7, rating: 4.0 },
+    { id: 2, similarity: 0.7, rating: 5.0 },
+    { id: 3, similarity: 0.2, rating: 5.0 },
+  ]);
+  const out = await svc.searchText({ query: 'ghế', limit: 2 });
+  assert.equal(calls.hybrid[0].limit, 4);
+  assert.deepEqual(out.items.map((p) => p.id), [2, 1]);
+  assert.equal(out.count, 2);
+});
+
+test('searchText: rerank=false giữ nguyên thứ tự hybrid và limit gốc (dành cho RecommendService)', async () => {
+  const { svc, calls } = build();
+  svc.products.searchHybrid = async (a) => (calls.hybrid.push(a), [{ id: 1, similarity: 0.2, rating: 3 }, { id: 2, similarity: 0.9, rating: 5 }]);
+  const out = await svc.searchText({ query: 'ghế', limit: 7, rerank: false });
+  assert.equal(calls.hybrid[0].limit, 7);
+  assert.deepEqual(out.items.map((p) => p.id), [1, 2]);
+});
+
+test('searchImage: xếp lại theo độ giống ảnh và số sao', async () => {
+  const { svc, calls } = build();
+  svc.products.searchByImage = async (a) => (calls.image.push(a), [
+    { id: 1, similarity: 0.90, rating: 3.5 },
+    { id: 2, similarity: 0.89, rating: 5.0 },
+    { id: 3, similarity: 0.50, rating: 5.0 },
+  ]);
+  const out = await svc.searchImage({ file: { buffer: Buffer.from('x'), mimetype: 'image/png' }, limit: 3 });
+  assert.equal(calls.image[0].limit, 6);
+  assert.deepEqual(out.items.map((p) => p.id), [2, 1, 3]);
+});

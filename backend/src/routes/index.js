@@ -45,6 +45,11 @@ export function createApiRouter({ services, config }) {
 
   // Gợi ý & lịch sử
   api.get('/recommendations', validate({ query: schemas.limitQuery(8) }), recommendations.forMe);
+  // Gợi ý cá nhân hóa (từ khóa + sở thích + ngân sách + lịch sử xem). Giao diện gọi endpoint này cho mọi thao tác duyệt
+  // (đổi tab, "Xem thêm"...), nên chỉ lượt CÓ từ khóa (thực sự gọi dịch vụ AI) mới chịu giới hạn chặt như tìm kiếm;
+  // các lượt còn lại chỉ đọc database và nằm dưới giới hạn chung của /api.
+  const aiOnlyWhenQuery = (req, res, next) => (req.body?.query?.trim?.() ? searchLimiter(req, res, next) : next());
+  api.post('/recommend', aiOnlyWhenQuery, validate({ body: schemas.recommendBody }), recommendations.personalized);
   api.get('/history', validate({ query: schemas.limitQuery(10) }), history.recent);
   api.delete('/history', history.clear);
 
