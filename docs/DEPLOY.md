@@ -49,7 +49,7 @@ sudo -u deploy nano /opt/ttnt/.env
 POSTGRES_PASSWORD=<chạy: openssl rand -hex 24>
 ADMIN_API_KEY=<chạy: openssl rand -hex 24>
 DOMAIN=app.ten-mien-cua-ban.com   # hoặc :80 nếu chưa có tên miền
-SEED_ON_START=true                # đặt false khi đã có dữ liệu thật
+IMPORT_CSV_ON_START=true          # tự đồng bộ CSV vào PostgreSQL khi backend khởi động
 ```
 
 Có tên miền: tạo bản ghi DNS `A` trỏ về IP server **trước** lần deploy đầu để Caddy xin được chứng chỉ HTTPS (cần mở cổng 80 và 443).
@@ -72,7 +72,7 @@ Tùy chọn: Settings → Environments → tạo `production` và bật *Require
 
 Merge vào `main` (hoặc Actions → CI/CD → Run workflow trên `main`). Pipeline: test → build 3 image → đẩy lên GHCR → SSH lên server → `docker compose up -d` → đợi backend `healthy`.
 
-Lần đầu, ai-service cần 1 đến 2 phút để nạp model. Trong lúc đó tìm kiếm tự dùng chế độ từ khóa, và sản phẩm mẫu được lập chỉ mục nền khi AI sẵn sàng.
+Khi backend khởi động, CSV marketplace được đồng bộ vào PostgreSQL trước khi API mở cổng. Frontend tải danh sách từ backend và có thể hiển thị sản phẩm ngay khi database sẵn sàng. Ai-service cần 1 đến 2 phút để nạp model; embedding được tạo nền sau đó, trong lúc chờ tìm kiếm chữ tự dùng chế độ từ khóa. Đặt `IMPORT_CSV_ON_START=false` nếu muốn tắt đồng bộ CSV tự động.
 
 Kiểm tra:
 

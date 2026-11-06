@@ -6,6 +6,7 @@ import { IndexingService } from './services/indexing.service.js';
 import { ProductService } from './services/product.service.js';
 import { SearchService } from './services/search.service.js';
 import { RecommendationService } from './services/recommendation.service.js';
+import { RecommendService } from './services/recommend.service.js';
 import { HistoryService } from './services/history.service.js';
 import { HealthService } from './services/health.service.js';
 
@@ -18,21 +19,24 @@ export function createContainer({ config, logger, pool }) {
 
   const embeddings = new EmbeddingService({ ai });
   const indexing = new IndexingService({ products: productRepo, embeddings, logger });
+  const search = new SearchService({
+    products: productRepo,
+    history: historyRepo,
+    embeddings,
+    logger,
+    textMinSimilarity: config.textMinSimilarity,
+    imageMinSimilarity: config.imageMinSimilarity,
+    textImageWeight: config.textImageWeight,
+  });
 
   return {
     repositories: { products: productRepo, history: historyRepo },
     services: {
       health: new HealthService({ pool, ai }),
       products: new ProductService({ products: productRepo, indexing, logger }),
-      search: new SearchService({
-        products: productRepo,
-        history: historyRepo,
-        embeddings,
-        logger,
-        textMinSimilarity: config.textMinSimilarity,
-        imageMinSimilarity: config.imageMinSimilarity,
-      }),
+      search,
       recommendations: new RecommendationService({ products: productRepo, history: historyRepo }),
+      recommend: new RecommendService({ products: productRepo, search, textImageWeight: config.textImageWeight }),
       history: new HistoryService({ history: historyRepo }),
       indexing,
     },

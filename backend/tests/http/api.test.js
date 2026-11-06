@@ -38,6 +38,9 @@ const services = {
     searchText: async (a) => ((calls.text = a), { items: [{ ...product, similarity: 0.9 }], count: 1, mode: 'hybrid', query: a.query }),
     searchImage: async (a) => ((calls.image = a), { items: [], count: 0 }),
   },
+  recommend: {
+    recommend: async (a) => ((calls.recommend = a), { items: [{ ...product, score: 0.5, reason: 'Gợi ý cho bạn' }], total: 1, mode: 'browse' }),
+  },
   recommendations: {
     forClient: async (a) => ((calls.recs = a), { strategy: 'latest', basedOn: [], items: [product], trendingQueries: [] }),
     similarTo: async () => [product],
@@ -232,4 +235,39 @@ test('CORS: origin được phép nhận header, origin lạ thì không', async
   assert.equal(ok.headers.get('access-control-allow-origin'), 'http://localhost:5173');
   const bad = await api('/health', { headers: { origin: 'https://evil.example' } });
   assert.equal(bad.headers.get('access-control-allow-origin'), null);
+});
+
+test('POST /recommend: áp giá trị mặc định và chuyển đúng tham số cho service', async () => {
+  reset();
+  const res = await api('/recommend', json({ query: '  giày ', interests: ['Giày dép'], budget: 'mid', viewedIds: [1, 2] }));
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.items[0].reason, 'Gợi ý cho bạn');
+  assert.deepEqual(calls.recommend, { query: 'giày', interests: ['Giày dép'], budget: 'mid', viewedIds: [1, 2], sort: 'relevance', limit: 96, offset: 0 });
+  reset();
+  await api('/recommend', json({}));
+  assert.deepEqual(calls.recommend, { query: '', interests: [], budget: 'any', viewedIds: [], sort: 'relevance', limit: 96, offset: 0 });
+});
+
+test('POST /recommend: dữ liệu sai -> 400', async () => {
+  for (const body of [{ budget: 'giàu' }, { viewedIds: ['a'] }, { viewedIds: [0] }, { limit: 0 }, { limit: 301 }, { offset: -1 }, { sort: 'ngẫu nhiên' }, { interests: 'x' }]) {
+    const res = await api('/recommend', json(body));
+    assert.equal(res.status, 400, JSON.stringify(body));
+    assert.equal((await res.json()).error.code, 'VALIDATION_ERROR');
+  }
+});
+
+test('POST /recommend: chỉ lượt có từ khóa chịu giới hạn tìm kiếm AI, duyệt thường thì không', async () => {
+  const { srv, url } = await listen(loadConfig({ ...baseEnv, SEARCH_RATE_LIMIT_PER_MIN: '2' }));
+  try {
+    const post = (body) => fetch(`${url}/api/recommend`, json(body)).then((r) => r.status);
+    const browse = [];
+    for (let i = 0; i < 6; i++) browse.push(await post({ category: 'Giày dép', offset: i * 24 }));
+    assert.deepEqual(browse, [200, 200, 200, 200, 200, 200], 'duyệt/đổi tab/xem thêm không bị giới hạn kiểu AI');
+    const searches = [];
+    for (let i = 0; i < 3; i++) searches.push(await post({ query: 'giày' }));
+    assert.deepEqual(searches, [200, 200, 429], 'lượt có từ khóa tính vào giới hạn 2 lượt/phút');
+  } finally {
+    srv.close();
+  }
 });

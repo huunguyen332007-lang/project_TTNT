@@ -2,6 +2,7 @@ import { toVectorLiteral } from '../utils/vector.js';
 
 // Các cột trả về cho client (không bao giờ SELECT cột vector vì rất nặng).
 const COLUMNS = `p.id, p.title, p.category, p.tag, p.image_url, p.description, p.price::float8 AS price,
+                 p.rating::float8 AS rating, p.source_url,
                  (p.text_embedding IS NOT NULL AND p.image_embedding IS NOT NULL) AS indexed`;
 
 function toProduct(row) {
@@ -13,9 +14,12 @@ function toProduct(row) {
     imageUrl: row.image_url,
     description: row.description,
     price: row.price ?? null,
+    rating: row.rating ?? null,
+    sourceUrl: row.source_url ?? null,
     indexed: row.indexed,
   };
   if (row.similarity !== undefined && row.similarity !== null) product.similarity = Number(row.similarity);
+  if (row.image_similarity !== undefined && row.image_similarity !== null) product.imageSimilarity = Number(row.image_similarity);
   return product;
 }
 
@@ -56,14 +60,115 @@ export class ProductRepository {
     return rows;
   }
 
-  async insert({ title, category, tag, imageUrl, description, price }) {
+  async insert({ title, category, tag, imageUrl, description, price, rating, sourceUrl }) {
     const { rows } = await this.db.query(
-      `INSERT INTO products (title, category, tag, image_url, description, price)
-       VALUES ($1, COALESCE($2, 'Khác'), COALESCE($3, ''), $4, COALESCE($5, ''), $6)
+      `INSERT INTO products (title, category, tag, image_url, description, price, rating, source_url)
+       VALUES ($1, COALESCE($2, 'Khác'), COALESCE($3, ''), $4, COALESCE($5, ''), $6, $7, $8)
        RETURNING id`,
-      [title, category ?? null, tag ?? null, imageUrl, description ?? null, price ?? null],
+      [title, category ?? null, tag ?? null, imageUrl, description ?? null, price ?? null, rating ?? null, sourceUrl ?? null],
     );
     return this.findById(rows[0].id);
+  }
+
+  /**
+   * Nạp sản phẩm import: thêm mới hoặc cập nhật theo source_url nên chạy lại nhiều lần không tạo bản ghi trùng.
+   * Nếu nội dung văn bản/ảnh đổi thì xóa embedding cũ để lần reindex sau tạo lại.
+   * @returns {Promise<'inserted'|'updated'>}
+   */
+  async upsertImported({ title, category, tag, imageUrl, description = '', price, rating, sourceUrl }) {
+    const { rows } = await this.db.query(
+      `INSERT INTO products (title, category, tag, image_url, description, price, rating, source_url)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       ON CONFLICT (source_url) WHERE source_url IS NOT NULL DO UPDATE SET
+         text_embedding = CASE WHEN (products.title, products.category, products.tag, products.description)
+                                    IS DISTINCT FROM (EXCLUDED.title, EXCLUDED.category, EXCLUDED.tag, EXCLUDED.description)
+                               THEN NULL ELSE products.text_embedding END,
+         image_embedding = CASE WHEN products.image_url IS DISTINCT FROM EXCLUDED.image_url
+                                THEN NULL ELSE products.image_embedding END,
+         title = EXCLUDED.title, category = EXCLUDED.category, tag = EXCLUDED.tag, image_url = EXCLUDED.image_url,
+         description = EXCLUDED.description, price = EXCLUDED.price, rating = EXCLUDED.rating, updated_at = NOW()
+       RETURNING (xmax = 0) AS inserted`,
+      [title, category, tag, imageUrl, description, price ?? null, rating ?? null, sourceUrl],
+    );
+    return rows[0].inserted ? 'inserted' : 'updated';
+  }
+
+  /**
+   * Import đồng loạt CSV theo source_url. Chia lô để giới hạn số bind params và tránh
+   * gửi hàng nghìn round-trip SQL riêng lẻ khi backend khởi động.
+   * Embedding cũ chỉ bị xóa khi nội dung văn bản hoặc URL ảnh thay đổi.
+   */
+  async upsertImportedMany(products, { batchSize = 300 } = {}) {
+    const counts = { inserted: 0, updated: 0 };
+    const columnsPerRow = 8;
+
+    for (let start = 0; start < products.length; start += batchSize) {
+      const batch = products.slice(start, start + batchSize);
+      const values = [];
+      const tuples = batch.map((product, index) => {
+        const base = index * columnsPerRow;
+        values.push(
+          product.title,
+          product.category ?? 'Khác',
+          product.tag ?? '',
+          product.imageUrl,
+          product.description ?? '',
+          product.price ?? null,
+          product.rating ?? null,
+          product.sourceUrl,
+        );
+        return `(${Array.from({ length: columnsPerRow }, (_, i) => `$${base + i + 1}`).join(', ')})`;
+      });
+
+      const { rows } = await this.db.query(
+        `INSERT INTO products (title, category, tag, image_url, description, price, rating, source_url)
+         VALUES ${tuples.join(', ')}
+         ON CONFLICT (source_url) WHERE source_url IS NOT NULL DO UPDATE SET
+           text_embedding = CASE WHEN (products.title, products.category, products.tag, products.description)
+                                      IS DISTINCT FROM (EXCLUDED.title, EXCLUDED.category, EXCLUDED.tag, EXCLUDED.description)
+                                 THEN NULL ELSE products.text_embedding END,
+           image_embedding = CASE WHEN products.image_url IS DISTINCT FROM EXCLUDED.image_url
+                                  THEN NULL ELSE products.image_embedding END,
+           title = EXCLUDED.title, category = EXCLUDED.category, tag = EXCLUDED.tag, image_url = EXCLUDED.image_url,
+           description = EXCLUDED.description, price = EXCLUDED.price, rating = EXCLUDED.rating,
+           updated_at = CASE
+             WHEN (products.title, products.category, products.tag, products.image_url, products.description, products.price, products.rating)
+                  IS DISTINCT FROM
+                  (EXCLUDED.title, EXCLUDED.category, EXCLUDED.tag, EXCLUDED.image_url, EXCLUDED.description, EXCLUDED.price, EXCLUDED.rating)
+             THEN NOW() ELSE products.updated_at END
+         RETURNING (xmax = 0) AS inserted`,
+        values,
+      );
+
+      for (const row of rows) counts[row.inserted ? 'inserted' : 'updated'] += 1;
+    }
+
+    return counts;
+  }
+
+  /** Xóa toàn bộ sản phẩm (dùng cho `import:csv --replace`). Trả về số dòng đã xóa. */
+  async removeAll() {
+    const { rowCount } = await this.db.query('DELETE FROM products');
+    return rowCount;
+  }
+
+  /**
+   * Xóa 6 sản phẩm mẫu cũ (ảnh Unsplash, không có source_url) còn sót trong database từ các lần chạy trước,
+   * để giao diện chỉ hiển thị dữ liệu CSV của bạn. Sản phẩm bạn tự thêm qua API (ảnh của bạn) không bị đụng tới.
+   */
+  async removeSampleProducts() {
+    const { rowCount } = await this.db.query(
+      "DELETE FROM products WHERE source_url IS NULL AND image_url LIKE 'https://images.unsplash.com/%'",
+    );
+    return rowCount;
+  }
+
+  /** Xóa mọi embedding để tạo lại từ đầu, ví dụ sau khi đổi sang model đã fine-tune. */
+  async clearEmbeddings() {
+    const { rowCount } = await this.db.query(
+      'UPDATE products SET text_embedding = NULL, image_embedding = NULL, embedded_at = NULL WHERE text_embedding IS NOT NULL OR image_embedding IS NOT NULL',
+    );
+    return rowCount;
   }
 
   async remove(id) {
@@ -124,6 +229,8 @@ export class ProductRepository {
        )
        SELECT ${COLUMNS},
               (1 - (p.text_embedding <=> $1::vector))::float8 AS similarity,
+              -- chữ -> ảnh: độ khớp giữa truy vấn và ẢNH sản phẩm (mục tiêu mà fine-tune CLIP huấn luyện trực tiếp)
+              (1 - (p.image_embedding <=> $1::vector))::float8 AS image_similarity,
               (COALESCE(1.0 / (60 + s.rnk), 0) + COALESCE(1.0 / (60 + k.rnk), 0))::float8 AS score
        FROM products p
        LEFT JOIN semantic s ON s.id = p.id
@@ -200,6 +307,39 @@ export class ProductRepository {
       [id, limit],
     );
     return rows.map(toProduct);
+  }
+
+  /** Toàn bộ sản phẩm (nhẹ, không có vector) để chấm điểm gợi ý trong bộ nhớ. Phù hợp tới vài chục nghìn sản phẩm. */
+  async listForRanking({ category }) {
+    const { rows } = await this.db.query(
+      `SELECT ${COLUMNS} FROM products p WHERE ($1::text IS NULL OR p.category = $1) ORDER BY p.id`,
+      [category ?? null],
+    );
+    return rows.map(toProduct);
+  }
+
+  async findByIds(ids) {
+    if (!ids.length) return [];
+    const { rows } = await this.db.query(`SELECT ${COLUMNS} FROM products p WHERE p.id = ANY($1::int[])`, [ids]);
+    return rows.map(toProduct);
+  }
+
+  /**
+   * Độ giống (cosine) của mọi sản phẩm với "khẩu vị" = vector trung bình các sản phẩm đã xem.
+   * Chỉ dùng embedding đã có trong database nên vẫn chạy khi dịch vụ AI tắt. Không trả về chính các sản phẩm đã xem.
+   * @returns {Promise<Map<number, number>>}
+   */
+  async similarityToTaste(viewedIds, { category } = {}) {
+    if (!viewedIds.length) return new Map();
+    const { rows } = await this.db.query(
+      `WITH taste AS (SELECT AVG(text_embedding) AS v FROM products WHERE id = ANY($1::int[]) AND text_embedding IS NOT NULL)
+       SELECT p.id, (1 - (p.text_embedding <=> t.v))::float8 AS similarity
+       FROM products p, taste t
+       WHERE t.v IS NOT NULL AND p.text_embedding IS NOT NULL AND NOT (p.id = ANY($1::int[]))
+         AND ($2::text IS NULL OR p.category = $2)`,
+      [viewedIds, category ?? null],
+    );
+    return new Map(rows.map((r) => [r.id, r.similarity]));
   }
 
   async findLatest({ limit }) {
