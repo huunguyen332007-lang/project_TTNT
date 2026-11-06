@@ -4,7 +4,11 @@ import {
   Search, ArrowUpRight, Sparkles, Compass, Clock3, X, Menu,
   SlidersHorizontal, Command, History, Trash2, Camera
 } from "lucide-react";
+<<<<<<< HEAD
 import { getCategories, getSimilar } from "./api.js";
+=======
+import { clearHistory, getCategories, getSimilar } from "./api.js";
+>>>>>>> d642a4f5436e776b2fbe4f031def991d04107e0b
 import { clearSearchRequests, getRecentSearches } from "./searchCache.js";
 import { useRecommendations } from "./useRecommendations.js";
 import { budgetOptions } from "./budgets.js";
@@ -135,6 +139,15 @@ export default function App() {
     setQuery("");
     setSearched(true);
     setShowImage(false);
+<<<<<<< HEAD
+=======
+    scrollToResults();
+  }
+
+  // Sau khi bấm tìm kiếm thì cuộn xuống phần sản phẩm (đợi một khung hình để vùng kết quả cập nhật xong).
+  function scrollToResults() {
+    requestAnimationFrame(() => document.getElementById("results")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+>>>>>>> d642a4f5436e776b2fbe4f031def991d04107e0b
   }
 
   // Bấm vào một tìm kiếm đã lưu: chạy lại đúng từ khóa/ảnh/danh mục đó để kết quả luôn mới.
@@ -149,11 +162,19 @@ export default function App() {
       setQuery(saved.query || "");
     }
     setSearched(true);
+<<<<<<< HEAD
     document.getElementById("results")?.scrollIntoView({ behavior: "smooth" });
+=======
+    scrollToResults();
+>>>>>>> d642a4f5436e776b2fbe4f031def991d04107e0b
   }
 
   async function clearRecent() {
     await clearSearchRequests();
+<<<<<<< HEAD
+=======
+    clearHistory().catch(() => { /* backend tắt thì chỉ xóa phần trên thiết bị */ });
+>>>>>>> d642a4f5436e776b2fbe4f031def991d04107e0b
     setRecent([]);
   }
 
@@ -167,7 +188,12 @@ export default function App() {
 
   const budgetLabel = budgetOptions.find((b) => b.key === budget)?.label;
   const status = rec.error ? "Có lỗi khi tải dữ liệu" : STATUS[rec.mode] ?? STATUS.browse;
+<<<<<<< HEAD
   const heading = image ? "Sản phẩm giống ảnh của bạn" : personalized || searched ? "Gợi ý phù hợp với bạn" : "Sản phẩm nổi bật";
+=======
+  const fromHistory = rec.basedOn?.length > 0; // gợi ý dựa trên lịch sử tìm kiếm trong PostgreSQL
+  const heading = image ? "Sản phẩm giống ảnh của bạn" : personalized || searched || fromHistory ? "Gợi ý phù hợp với bạn" : "Sản phẩm nổi bật";
+>>>>>>> d642a4f5436e776b2fbe4f031def991d04107e0b
 
   return (
     <div className="app-shell">
@@ -195,7 +221,11 @@ export default function App() {
             <h1>Sản phẩm phù hợp<br />bắt đầu từ <span>sở thích của bạn.</span></h1>
             <p className="hero-copy">Tìm bằng từ khóa hoặc bằng ảnh, chọn sở thích và ngân sách để nhận danh sách sản phẩm được gợi ý riêng cho bạn.</p>
 
+<<<<<<< HEAD
             <form className="search-panel" onSubmit={(e) => { e.preventDefault(); setSearched(true); }}>
+=======
+            <form className="search-panel" onSubmit={(e) => { e.preventDefault(); setSearched(true); scrollToResults(); }}>
+>>>>>>> d642a4f5436e776b2fbe4f031def991d04107e0b
               <div className="search-input-wrap">
                 <Search className="search-icon" size={22} />
                 <input ref={inputRef} value={query} onChange={(e) => changeQuery(e.target.value)} placeholder="Tìm sản phẩm, ví dụ: tai nghe bluetooth" aria-label="Nhập sản phẩm cần tìm" />
@@ -211,7 +241,11 @@ export default function App() {
             <div className="search-hints">
               <span>Gợi ý:</span>
               {["giày thể thao nam", "son môi lì", "tai nghe bluetooth"].map((term) => (
+<<<<<<< HEAD
                 <button key={term} onClick={() => { changeQuery(term); setSearched(true); }}>{term}</button>
+=======
+                <button key={term} onClick={() => { changeQuery(term); setSearched(true); scrollToResults(); }}>{term}</button>
+>>>>>>> d642a4f5436e776b2fbe4f031def991d04107e0b
               ))}
             </div>
             {image && (
@@ -245,6 +279,10 @@ export default function App() {
               <p>
                 {image ? "Xếp theo độ giống về hình ảnh và số sao."
                   : query ? <>Đang tìm với từ khóa <strong>“{query}”</strong> · xếp theo độ khớp và số sao</>
+<<<<<<< HEAD
+=======
+                  : rec.basedOn?.length ? <>Gợi ý dựa trên tìm kiếm gần đây: {rec.basedOn.map((q, i) => <span key={q}>{i > 0 && ", "}<strong>“{q}”</strong></span>)}</>
+>>>>>>> d642a4f5436e776b2fbe4f031def991d04107e0b
                   : "Chọn sở thích hoặc xem vài sản phẩm để nhận gợi ý tốt hơn."}
               </p>
             </div>
@@ -279,7 +317,11 @@ export default function App() {
             <>
               <div className="inspiration-grid">
                 {results.map((p, i) => (
+<<<<<<< HEAD
                   <ProductCard key={p.id} product={p} index={i} personalized={personalized && sort === "relevance"} onOpen={openProduct} />
+=======
+                  <ProductCard key={p.id} product={p} index={i} personalized={(personalized || fromHistory) && sort === "relevance"} onOpen={openProduct} />
+>>>>>>> d642a4f5436e776b2fbe4f031def991d04107e0b
                 ))}
               </div>
               {rec.hasMore && (

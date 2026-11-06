@@ -95,3 +95,7 @@
 .recent-text small{font-size:10px;color:#9b9eaa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:6px}
 .recent-top{color:#6f68d8!important}
 @media(max-width:900px){.recent-grid{grid-template-columns:1fr}.recent-section{padding:36px 19px 0}}
+<<<<<<< HEAD
+=======
+.results-section{scroll-margin-top:12px}
+>>>>>>> d642a4f5436e776b2fbe4f031def991d04107e0b

@@ -113,3 +113,37 @@ test('recommend: từ khóa -> khớp cao và nhiều sao lên đầu, tắt rer
   assert.deepEqual(r.items.map((p) => p.id), [2, 1, 3]);
   assert.equal(r.items[0].similarity, 0.6, 'độ khớp được giữ lại để giao diện hiển thị');
 });
+<<<<<<< HEAD
+=======
+
+test('recommend: chưa gõ gì nhưng có lịch sử tìm kiếm -> gợi ý theo lịch sử, mode personalized, nêu rõ dựa trên từ khóa nào', async () => {
+  const calls = {};
+  const pool = [P(1, { rating: 4.5 }), P(2, { rating: 4.5 }), P(3, { rating: 4.5 })];
+  const products = {
+    listForRanking: async () => pool,
+    similarityToTaste: async () => new Map(),
+    findByIds: async () => [],
+    similarityToVector: async (v, a) => ((calls.vec = { v, ...a }), new Map([[1, 0.2], [2, 0.9], [3, 0.5]])),
+  };
+  const history = { recentTextQueries: async (id, a) => ((calls.hist = { id, ...a }), [{ query: 'tai nghe', embedding: [1, 0] }, { query: 'tai', embedding: [1, 0] }]) };
+  const svc = new RecommendService({ products, search: {}, history });
+  const r = await svc.recommend({ limit: 10, clientId: 'c1' });
+  assert.equal(calls.hist.id, 'c1');
+  assert.equal(r.mode, 'personalized');
+  assert.deepEqual(r.basedOn, ['tai nghe'], '"tai" là truy vấn gõ dở nên bị bỏ');
+  assert.deepEqual(r.items.map((p) => p.id), [2, 3, 1]);
+  assert.equal(r.items[0].reason, 'Dựa trên tìm kiếm “tai nghe”');
+
+  const anon = await svc.recommend({ limit: 10 });
+  assert.equal(anon.mode, 'browse');
+  assert.deepEqual(anon.basedOn, []);
+});
+
+test('recommend: có từ khóa thì không đọc lịch sử (độ khớp với truy vấn là chính)', async () => {
+  let read = false;
+  const history = { recentTextQueries: async () => ((read = true), []) };
+  const svc = new RecommendService({ products: { similarityToTaste: async () => new Map(), findByIds: async () => [] }, search: { searchText: async () => ({ items: [P(1)], mode: 'hybrid' }) }, history });
+  await svc.recommend({ query: 'áo', limit: 5, clientId: 'c1' });
+  assert.equal(read, false);
+});
+>>>>>>> d642a4f5436e776b2fbe4f031def991d04107e0b
