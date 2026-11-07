@@ -96,8 +96,32 @@ Tất cả endpoint nằm dưới `/api`.
 | GET / DELETE | `/history` | Đọc hoặc xóa lịch sử của client hiện tại |
 | POST | `/events` | Ghi click/like/dislike vào `click_events` |
 | POST | `/admin/reindex` | Admin: tạo embedding còn thiếu |
+| GET | `/admin/stats?days=30&limit=10` | Admin: thống kê lượt tìm, tỉ lệ bấm, vị trí bấm, từ khóa không ai bấm (xem mục bên dưới) |
 
 `X-Client-Id` vẫn là UUID ẩn danh do frontend tạo. Các endpoint quản trị yêu cầu `X-Api-Key: <ADMIN_API_KEY>`. Lỗi được chuẩn hóa thành `{ "error": { "code": "...", "message": "...", "details": [...] } }`.
+
+## Thống kê lượt bấm (`GET /api/admin/stats`)
+
+Đo chất lượng tìm kiếm và gợi ý từ hai bảng `search_history` (lượt tìm) và `click_events` (lượt bấm, thích, không thích). Cần khóa quản trị: đặt `ADMIN_API_KEY` trong `backend/.env` rồi gọi
+
+```bash
+curl "http://localhost:3000/api/admin/stats?days=7" -H "X-Api-Key: <ADMIN_API_KEY>"
+```
+
+hoặc mở `http://localhost:3000/docs`, chọn `GET /api/admin/stats` → **Try it out**, điền khóa vào ô `X-Api-Key` rồi bấm **Execute**. Tham số: `days` (1-365, mặc định 30) là số ngày gần nhất được tính, `limit` (1-50, mặc định 10) là số dòng tối đa của hai danh sách.
+
+| Trường | Ý nghĩa |
+|---|---|
+| `searches.total` | Số lượt tìm bằng chữ (có `X-Client-Id`) trong khoảng thời gian |
+| `searches.withClick`, `searches.clickThroughRate` | Số lượt tìm mà cùng trình duyệt bấm vào một kết quả của đúng từ khóa đó trong vòng 5 phút, và tỉ lệ so với tổng (`null` khi chưa có dữ liệu) |
+| `events` | Tổng lượt bấm, thích, không thích; lượt bấm chia theo nguồn `text` / `image` / `browse` |
+| `positions.distribution` | Số lượt bấm theo vị trí trong danh sách (1 = đầu tiên, vị trí 11 trở đi gộp thành `11+`) |
+| `positions.top3Share` | Tỉ lệ lượt bấm rơi vào 3 vị trí đầu: càng cao nghĩa là kết quả tốt được xếp càng lên trên |
+| `positions.meanReciprocalRank` | Trung bình của 1/vị trí trên các lượt bấm (1 = luôn bấm kết quả đầu tiên) |
+| `topProducts` | Sản phẩm được bấm nhiều nhất |
+| `zeroClickQueries` | Từ khóa được tìm từ 2 lần trở lên nhưng chưa lần nào được bấm, kèm số kết quả trung bình: nơi tìm kiếm có thể đang sai |
+
+Lưu ý khi đọc số: frontend gửi truy vấn trong lúc người dùng đang gõ, nên các từ gõ dở (ví dụ "tai ng") cũng được tính là một lượt tìm không có bấm. Vì vậy tỉ lệ bấm thực tế cao hơn con số này, và nên lọc danh sách `zeroClickQueries` bằng mắt. Cửa sổ 5 phút giống `training/sql/report_failed_queries.sql`; khác ở chỗ ở đây cú bấm phải thuộc đúng từ khóa đó.
 
 ## Test
 
