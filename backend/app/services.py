@@ -364,3 +364,63 @@ class HealthService:
                 result["hint"] = ("Backend đang chạy EMBEDDING_PROVIDER=local nên gọi AI Service tự host. "
                                   "Nếu không có AI Service (ví dụ trên Render free), đặt EMBEDDING_PROVIDER=jina và JINA_API_KEY.")
         return result
+
+
+class StatsService:
+    """Thống kê hành vi người dùng để đo chất lượng tìm kiếm và gợi ý (dùng cho báo cáo và cải thiện mô hình)."""
+
+    CLICK_WINDOW_MINUTES = 5   # cú bấm trong 5 phút sau khi tìm mới tính cho lượt tìm đó
+    MAX_POSITION_BUCKET = 10   # vị trí thứ 11 trở đi gộp thành một nhóm "11+"
+    MIN_SEARCHES_FOR_ZERO_CLICK = 2
+
+    def __init__(self, stats):
+        self.stats = stats
+
+    @staticmethod
+    def _ratio(part, total):
+        """Tỉ lệ làm tròn 4 chữ số; None khi chưa có dữ liệu (tránh chia cho 0 và tránh hiểu nhầm là 0%)."""
+        return round(part / total, 4) if total else None
+
+    async def summary(self, days=30, limit=10):
+        searches = await self.stats.search_summary(days, self.CLICK_WINDOW_MINUTES)
+        counts = await self.stats.event_counts(days)
+        buckets, mrr = await self.stats.click_positions(days, self.MAX_POSITION_BUCKET)
+        top_products = await self.stats.top_clicked_products(days, limit)
+        zero_click = await self.stats.zero_click_queries(days, self.CLICK_WINDOW_MINUTES, self.MIN_SEARCHES_FOR_ZERO_CLICK, limit)
+
+        by_kind = {"text": 0, "image": 0, "browse": 0}
+        by_event = {"click": 0, "like": 0, "dislike": 0}
+        for kind, event, n in counts:
+            by_event[event] = by_event.get(event, 0) + n
+            if event == "click":
+                by_kind[kind] = by_kind.get(kind, 0) + n
+
+        positioned = sum(n for _, n in buckets)
+        distribution = [
+            {"position": f"{self.MAX_POSITION_BUCKET + 1}+" if bucket >= self.MAX_POSITION_BUCKET else bucket + 1,
+             "clicks": n, "share": self._ratio(n, positioned)}
+            for bucket, n in buckets
+        ]
+        top3 = sum(n for bucket, n in buckets if bucket < 3)
+
+        return {
+            "days": days,
+            "searches": {
+                "total": searches["total"],
+                "withClick": searches["with_click"],
+                "clickThroughRate": self._ratio(searches["with_click"], searches["total"]),
+            },
+            "events": {
+                "clicks": by_event["click"],
+                "likes": by_event["like"],
+                "dislikes": by_event["dislike"],
+                "clicksByKind": by_kind,
+            },
+            "positions": {
+                "distribution": distribution,
+                "top3Share": self._ratio(top3, positioned),
+                "meanReciprocalRank": round(mrr, 4) if mrr is not None else None,
+            },
+            "topProducts": top_products,
+            "zeroClickQueries": zero_click,
+        }
