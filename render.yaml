@@ -1,0 +1,71 @@
+# Blueprint MIỄN PHÍ cho Render: database + backend + frontend. Embedding lấy từ Jina AI API,
+# nên KHÔNG cần AI Service. Đặt ở thư mục gốc repo với tên render.yaml.
+#
+# Hạn chế của gói free:
+#  - Postgres free bị xóa sau 30 ngày (+14 ngày ân hạn). Muốn dùng lâu: dùng Neon, xóa khối `databases`
+#    và tự điền DATABASE_URL của Neon (thêm ?sslmode=require, dùng kết nối trực tiếp, không qua pooler).
+#  - Backend free tự ngủ khi không có truy cập; lần gọi đầu sẽ chậm.
+#  - Số token miễn phí của Jina có hạn: xem số dư tại jina.ai.
+
+databases:
+  - name: ttnt-db
+    databaseName: ttnt
+    user: ttnt
+    region: singapore
+    plan: free
+    postgresMajorVersion: "16"
+
+services:
+  - type: web
+    name: ttnt-backend
+    runtime: docker
+    region: singapore
+    plan: free
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /api/health   # với Jina, endpoint này không gọi mạng nên không tốn token
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "3000"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ttnt-db
+          property: connectionString
+      - key: EMBEDDING_PROVIDER
+        value: jina
+      - key: JINA_API_KEY
+        sync: false            # dán khóa lấy từ https://jina.ai
+      - key: JINA_MODEL
+        value: jina-clip-v2
+      - key: JINA_IMAGE_INTERVAL_MS
+        value: "2500"          # đặt 0 nếu dùng key trả phí
+      - key: ADMIN_API_KEY
+        generateValue: true
+      - key: CORS_ORIGINS
+        sync: false            # nhập sau: https://<ten-frontend>.onrender.com
+      - key: TRUST_PROXY
+        value: "1"
+      - key: RUN_MIGRATIONS
+        value: "true"
+      # true: backend import CSV khi khởi động rồi tạo embedding nền (chậm, bị ngắt mỗi khi backend ngủ).
+      # Khuyến nghị: để true ở lần deploy đầu, rồi chạy `python -m app.cli reindex` từ máy bạn (xem README).
+      - key: IMPORT_CSV_ON_START
+        value: "true"
+
+  - type: web
+    name: ttnt-frontend
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: VITE_API_URL
+        sync: false            # nhập sau: https://<ten-backend>.onrender.com (KHÔNG có /api)
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
