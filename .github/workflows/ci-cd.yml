@@ -1,6 +1,12 @@
 name: CI/CD
 
-# Feature/dev branches and PRs run CI. A successful push to main publishes images and deploys via SSH.
+# Feature/dev branches and PRs run CI only. A successful push to main builds the three images and
+# pushes them to Docker Hub (tags: latest + sha-<commit>), then triggers the Render deploy hooks.
+#
+# Required repository secrets (Settings -> Secrets and variables -> Actions):
+#   DOCKERHUB_USERNAME  Docker Hub username (namespace the images are pushed to)
+#   DOCKERHUB_TOKEN     Docker Hub Access Token with "Read & Write" permission (NOT the account password)
+#   RENDER_BACKEND_DEPLOY_HOOK_URL / RENDER_FRONTEND_DEPLOY_HOOK_URL  (for the deploy-render job)
 on:
   push:
     branches: [main, dev, feature, "feature/**"]
@@ -104,17 +110,16 @@ jobs:
         env:
           POSTGRES_PASSWORD: ci-postgres-password
           ADMIN_API_KEY: ci-admin-key-0123456789
-          GHCR_OWNER: ci-owner
+          DOCKERHUB_USERNAME: ci-owner
         run: docker compose -f docker-compose.prod.yml config --quiet
 
   publish:
-    name: Build & publish images to GHCR (${{ matrix.name }})
+    name: Build & push image to Docker Hub (${{ matrix.name }})
     needs: [backend, frontend, ai-service, compose]
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write
     strategy:
       fail-fast: true
       matrix:
@@ -124,23 +129,33 @@ jobs:
           - { name: ai-service, context: ai_service }
     steps:
       - uses: actions/checkout@v4
-      - name: Normalize GHCR owner
-        id: owner
-        run: echo "name=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate Docker Hub secrets
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          test -n "$DOCKERHUB_USERNAME" || { echo "::error::Missing secret DOCKERHUB_USERNAME"; exit 1; }
+          test -n "$DOCKERHUB_TOKEN" || { echo "::error::Missing secret DOCKERHUB_TOKEN"; exit 1; }
+
       - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - uses: docker/metadata-action@v5
         id: meta
         with:
-          images: ghcr.io/${{ steps.owner.outputs.name }}/ttnt-${{ matrix.name }}
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/ttnt-${{ matrix.name }}
           tags: |
             type=raw,value=latest
             type=raw,value=sha-${{ github.sha }}
-      - uses: docker/build-push-action@v6
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.context }}
           push: true

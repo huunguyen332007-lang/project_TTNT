@@ -30,12 +30,12 @@ services:
       retries: 10
 
   ai-service:
-    image: ghcr.io/${GHCR_OWNER:?}/ttnt-ai-service:${IMAGE_TAG:-latest}
+    image: ${DOCKERHUB_USERNAME:?}/ttnt-ai-service:${IMAGE_TAG:-latest}
     container_name: ttnt-ai
     <<: [*restart, *logging]
 
   backend:
-    image: ghcr.io/${GHCR_OWNER:?}/ttnt-backend:${IMAGE_TAG:-latest}
+    image: ${DOCKERHUB_USERNAME:?}/ttnt-backend:${IMAGE_TAG:-latest}
     container_name: ttnt-backend
     <<: [*restart, *logging]
     environment:
@@ -56,7 +56,7 @@ services:
         condition: service_started
 
   frontend:
-    image: ghcr.io/${GHCR_OWNER:?}/ttnt-frontend:${IMAGE_TAG:-latest}
+    image: ${DOCKERHUB_USERNAME:?}/ttnt-frontend:${IMAGE_TAG:-latest}
     container_name: ttnt-frontend
     <<: [*restart, *logging]
     depends_on:

@@ -25,6 +25,7 @@ class Services:
         self.history = self
         self.events = self
         self.indexing = self
+        self.stats = self
 
     async def check(self, deep=False):
         self.calls["health_deep"] = deep
@@ -80,6 +81,10 @@ class Services:
     async def reindex_missing(self):
         return {"indexed": 3, "failed": 0}
 
+    async def summary(self, days=30, limit=10):
+        self.calls["stats"] = {"days": days, "limit": limit}
+        return {"days": days, "searches": {"total": 0, "withClick": 0, "clickThroughRate": None}}
+
 
 @pytest_asyncio.fixture
 async def client():
@@ -93,6 +98,7 @@ async def client():
     service_map = {
         "health": service, "products": service, "search": service, "recommend": service,
         "recommendations": service, "history": service, "events": service, "indexing": service,
+        "stats": service,
     }
     app = create_app(settings, services_override=service_map)
     # ASGITransport does not automatically run FastAPI lifespan handlers.

@@ -275,3 +275,80 @@ class EventRepository(BaseRepository):
             (client_id, kind, query, position, event, product_id),
         )
         return count > 0
+
+
+# Một lượt tìm bằng chữ được tính là "có bấm" nếu cùng trình duyệt (client_id) bấm vào một kết quả
+# của đúng từ khóa đó trong vòng N phút sau khi tìm. Cùng cửa sổ 5 phút với training/sql/report_failed_queries.sql.
+_SEARCHES_WITH_CLICK_FLAG = """
+    SELECT lower(btrim(h.query)) AS query, h.result_count,
+           EXISTS (
+             SELECT 1 FROM click_events c
+             WHERE c.client_id = h.client_id AND c.kind = 'text' AND c.event = 'click'
+               AND lower(btrim(c.query)) = lower(btrim(h.query))
+               AND c.created_at BETWEEN h.searched_at AND h.searched_at + make_interval(mins => %(window)s)
+           ) AS clicked
+    FROM search_history h
+    WHERE h.kind = 'text' AND btrim(h.query) <> '' AND h.client_id IS NOT NULL
+      AND h.searched_at > NOW() - make_interval(days => %(days)s)
+"""
+
+
+class StatsRepository(BaseRepository):
+    """Các truy vấn tổng hợp trên search_history và click_events, phục vụ đo chất lượng tìm kiếm/gợi ý."""
+
+    async def search_summary(self, days, window_minutes):
+        row = await self.one(
+            f"""SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE clicked)::int AS with_click
+            FROM ({_SEARCHES_WITH_CLICK_FLAG}) s""",
+            {"days": days, "window": window_minutes},
+        )
+        return {"total": row["total"], "with_click": row["with_click"]}
+
+    async def zero_click_queries(self, days, window_minutes, min_searches, limit):
+        """Từ khóa được tìm ít nhất min_searches lần mà chưa lần nào dẫn tới cú bấm."""
+        rows = await self.rows(
+            f"""SELECT query, COUNT(*)::int AS searches, ROUND(AVG(result_count))::int AS avg_results
+            FROM ({_SEARCHES_WITH_CLICK_FLAG}) s
+            GROUP BY query
+            HAVING COUNT(*) >= %(min_searches)s AND NOT bool_or(clicked)
+            ORDER BY searches DESC, query
+            LIMIT %(limit)s""",
+            {"days": days, "window": window_minutes, "min_searches": min_searches, "limit": limit},
+        )
+        return [{"query": r["query"], "searches": r["searches"], "avgResults": r["avg_results"]} for r in rows]
+
+    async def event_counts(self, days):
+        """Số sự kiện theo (loại tìm kiếm, loại sự kiện): ví dụ ('text', 'click') -> 12."""
+        rows = await self.rows(
+            """SELECT kind, event, COUNT(*)::int AS n FROM click_events
+            WHERE created_at > NOW() - make_interval(days => %s) GROUP BY kind, event""",
+            (days,),
+        )
+        return [(r["kind"], r["event"], r["n"]) for r in rows]
+
+    async def click_positions(self, days, max_bucket):
+        """Số lượt bấm theo vị trí (0 = đầu danh sách); vị trí >= max_bucket gộp chung một nhóm."""
+        rows = await self.rows(
+            """SELECT LEAST(position, %s) AS bucket, COUNT(*)::int AS n FROM click_events
+            WHERE event = 'click' AND position IS NOT NULL AND created_at > NOW() - make_interval(days => %s)
+            GROUP BY 1 ORDER BY 1""",
+            (max_bucket, days),
+        )
+        mrr = await self.one(
+            """SELECT AVG(1.0 / (position + 1))::float8 AS mrr FROM click_events
+            WHERE event = 'click' AND position IS NOT NULL AND created_at > NOW() - make_interval(days => %s)""",
+            (days,),
+        )
+        return [(r["bucket"], r["n"]) for r in rows], mrr["mrr"]
+
+    async def top_clicked_products(self, days, limit):
+        rows = await self.rows(
+            """SELECT p.id, p.title, p.category, COUNT(*)::int AS clicks
+            FROM click_events c JOIN products p ON p.id = c.product_id
+            WHERE c.event = 'click' AND c.created_at > NOW() - make_interval(days => %s)
+            GROUP BY p.id, p.title, p.category
+            ORDER BY clicks DESC, p.id
+            LIMIT %s""",
+            (days, limit),
+        )
+        return [{"id": r["id"], "title": r["title"], "category": r["category"], "clicks": r["clicks"]} for r in rows]
