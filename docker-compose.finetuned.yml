@@ -1,0 +1,15 @@
+# Chạy AI service với model CLIP đã fine-tune (kết quả của training/finetune_clip.py).
+#
+#   docker compose -f docker-compose.yml -f docker-compose.finetuned.yml up -d ai-service
+#   docker compose exec backend python -m app.cli reindex --all     # BẮT BUỘC: tạo lại toàn bộ embedding
+#
+# Vì sao bắt buộc reindex: embedding cũ được sinh bởi model gốc, nằm ở "không gian" khác với model đã tinh chỉnh.
+# Trộn hai loại trong cùng database sẽ cho kết quả tìm kiếm sai.
+# Muốn quay về model gốc: bỏ file này khỏi lệnh `docker compose` rồi reindex --all lần nữa.
+services:
+  ai-service:
+    environment:
+      AI_TEXT_MODEL: /models/text
+      AI_IMAGE_MODEL: /models/image
+    volumes:
+      - ./training/output/best:/models:ro

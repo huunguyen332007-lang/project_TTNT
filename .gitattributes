@@ -1,0 +1,6 @@
+# Luôn dùng LF trong repo để script .sh và Dockerfile chạy đúng trên Linux (kể cả khi dev trên Windows).
+* text=auto eol=lf
+*.sh text eol=lf
+*.png binary
+*.jpg binary
+*.webp binary
