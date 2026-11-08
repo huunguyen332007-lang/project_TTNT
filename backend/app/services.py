@@ -424,3 +424,16 @@ class StatsService:
             "topProducts": top_products,
             "zeroClickQueries": zero_click,
         }
+
+
+class ReviewService:
+    """Đánh giá của khách hàng cho từng sản phẩm."""
+
+    def __init__(self, reviews, products):
+        self.reviews, self.products = reviews, products
+
+    async def list_for_product(self, product_id, limit=10, offset=0):
+        if not await self.products.find_by_id(product_id):
+            raise not_found("Không tìm thấy sản phẩm")
+        result = await self.reviews.list_for_product(product_id, limit, offset)
+        return {**result, "limit": limit, "offset": offset}
