@@ -14,7 +14,7 @@ def get_embedder(request: Request) -> Embedder:
 
 
 def _error(status: int, code: str, message: str) -> HTTPException:
-    # Backend Node đọc detail.message để hiển thị cho người dùng.
+    # Backend Python đọc detail.message để hiển thị cho người dùng.
     return HTTPException(status_code=status, detail={"code": code, "message": message})
 
 

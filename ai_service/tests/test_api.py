@@ -72,7 +72,7 @@ def test_embed_image_requires_file(client):
 
 
 def test_error_shape_matches_what_backend_expects(client):
-    # Backend Node đọc detail.message; giữ cố định để hai bên không lệch nhau.
+    # Backend Python đọc detail.message; giữ cố định để hai bên không lệch nhau.
     detail = client.post("/embed/image", files={"file": ("a.png", b"x", "image/png")}).json()["detail"]
     assert set(detail) == {"code", "message"}
 

@@ -1,6 +1,6 @@
 """Đọc và làm sạch CSV, gom nhóm trùng lặp và chia train/val/test. Không phụ thuộc torch.
 
-Quy tắc làm sạch PHẢI giống backend (backend/src/import/marketplace-csv.js) để tập huấn luyện
+Quy tắc làm sạch PHẢI giống backend (backend/app/importer.py) để tập huấn luyện
 đúng bằng tập sản phẩm đang nằm trong database. tests/test_data.py kiểm tra các con số này.
 """
 from __future__ import annotations
@@ -15,7 +15,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 REPO = Path(__file__).resolve().parents[2]
-SEED_DIR = REPO / "backend" / "src" / "db" / "seed-data"
+SEED_DIR = REPO / "backend" / "app" / "seed-data"
 DEFAULT_CSV = SEED_DIR / "marketplace-products.csv"
 DEFAULT_MAP = SEED_DIR / "category-map.json"
 
@@ -28,9 +28,13 @@ def norm_spaces(s: str | None) -> str:
 
 def canonical_url(raw: str) -> str | None:
     parts = urlsplit((raw or "").strip())
-    if not parts.scheme or not parts.netloc:
+    scheme = parts.scheme.lower()
+    if scheme not in {"http", "https"} or not parts.netloc:
         return None
-    return parts._replace(query="", fragment="").geturl()
+    host = parts.netloc.lower()
+    if (scheme == "http" and host.endswith(":80")) or (scheme == "https" and host.endswith(":443")):
+        host = host.rsplit(":", 1)[0]
+    return parts._replace(scheme=scheme, netloc=host, path=parts.path or "/", query="", fragment="").geturl()
 
 
 def build_product_text(title: str, category: str, tag: str, description: str = "") -> str:

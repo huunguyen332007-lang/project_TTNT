@@ -25,13 +25,26 @@ Trên Colab: tải `project_TTNT` lên (hoặc mount Drive), rồi chạy từng
 
 Kết quả cuối cùng in ra bảng so sánh mô hình gốc và mô hình đã tinh chỉnh **trên tập test chưa từng được dùng để chọn checkpoint**. `output/report.json` giữ cùng số liệu, `output/history.csv` là điểm theo epoch.
 
+## Thu thập dữ liệu từ PostgreSQL và đánh giá bằng truy vấn thật
+
+PostgreSQL là nơi lưu mọi dữ liệu: sản phẩm (`products`), từ khóa đã tìm (`search_history`) và các cú bấm vào sản phẩm (`click_events`, ghi qua `POST /api/events`). Các file trong `sql/` xuất chúng ra CSV:
+
+```bash
+docker compose exec -T postgres psql -q -U ttnt -d ttnt < training/sql/export_products.sql    > products.csv       # để huấn luyện
+docker compose exec -T postgres psql -q -U ttnt -d ttnt < training/sql/export_product_ids.sql  > products_ids.csv   # để đánh giá
+python prepare_data.py --csv products.csv && python finetune_clip.py
+python eval_judgments.py --products products_ids.csv --judgments judgments.csv --tuned output/best
+```
+
+`judgments.csv` có cột `query,product_id,relevance` (1 liên quan, 2 rất đúng, 3 đúng chính xác). `eval_judgments.py` báo `ndcg@10`, `recall@10`, `mrr`, `hit@1` cho mô hình văn bản gốc và đã tinh chỉnh, bằng đúng các truy vấn bạn quan tâm; nó chỉ đánh giá phía chữ. Hướng dẫn đầy đủ nằm trong tài liệu "Hướng dẫn thu thập dữ liệu và huấn luyện mô hình".
+
 ## Đưa model vào ứng dụng
 
 Chép `output/best/` về `training/output/best/` trên máy chạy Docker, rồi:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.finetuned.yml up -d ai-service
-docker compose exec backend npm run reindex -- --all
+docker compose exec backend python -m app.cli reindex --all
 ```
 
 `reindex --all` là bắt buộc (xem giải thích trong `docker-compose.finetuned.yml`).

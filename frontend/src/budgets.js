@@ -1,4 +1,4 @@
-// Khóa phải khớp BUDGETS ở backend/src/config/constants.js (mốc tính theo VND, chọn theo phân phối giá thật).
+// Khóa phải khớp BUDGETS ở backend/app/constants.py (mốc tính theo VND, chọn theo phân phối giá thật).
 export const budgetOptions = [
   { key: "any", label: "Bất kỳ" },
   { key: "low", label: "Dưới 100k" },

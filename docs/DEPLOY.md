@@ -2,7 +2,7 @@
 
 ## 1. Chọn cấu hình server
 
-Dịch vụ `ai-service` nạp hai model CLIP vào RAM và chạy trên CPU. Ước tính (chưa đo trên dữ liệu của bạn): ai-service dùng khoảng 1,5 đến 2,5 GB, phần còn lại (PostgreSQL, Node, nginx, Caddy) khoảng 0,5 GB.
+Dịch vụ `ai-service` nạp hai model CLIP vào RAM và chạy trên CPU. Ước tính (chưa đo trên dữ liệu của bạn): ai-service dùng khoảng 1,5 đến 2,5 GB, phần còn lại (PostgreSQL, Python backend, nginx, Caddy) khoảng 0,5 GB.
 
 | Mức | Cấu hình | Ghi chú |
 |---|---|---|
@@ -70,7 +70,7 @@ Tùy chọn: Settings → Environments → tạo `production` và bật *Require
 
 ## 6. Deploy
 
-Merge vào `main` (hoặc Actions → CI/CD → Run workflow trên `main`). Pipeline: test → build 3 image → đẩy lên GHCR → SSH lên server → `docker compose up -d` → đợi backend `healthy`.
+Push/merge vào `main` (hoặc Actions → CI/CD → Run workflow trên `main`). Pipeline: test → build 3 image → đẩy lên GHCR → SSH lên server → `docker compose up -d` → đợi backend `healthy`.
 
 Khi backend khởi động, CSV marketplace được đồng bộ vào PostgreSQL trước khi API mở cổng. Frontend tải danh sách từ backend và có thể hiển thị sản phẩm ngay khi database sẵn sàng. Ai-service cần 1 đến 2 phút để nạp model; embedding được tạo nền sau đó, trong lúc chờ tìm kiếm chữ tự dùng chế độ từ khóa. Đặt `IMPORT_CSV_ON_START=false` nếu muốn tắt đồng bộ CSV tự động.
 
@@ -114,5 +114,5 @@ Nếu GHCR package ở chế độ private, lệnh `pull` bằng tay cần `dock
 | `ai-service` liên tục khởi động lại, log có `Killed` | Thiếu RAM. Tăng RAM hoặc swap. |
 | Caddy không lấy được chứng chỉ | DNS chưa trỏ đúng, hoặc cổng 80/443 bị chặn ở firewall của nhà cung cấp. |
 | Pipeline lỗi ở bước SSH | Sai `DEPLOY_SSH_KEY` (phải là khóa **riêng**, đủ dòng BEGIN/END) hoặc public key chưa nằm trong `authorized_keys`. |
-| `npm ci` báo lockfile không khớp | Chạy `npm install` ở thư mục tương ứng rồi commit `package-lock.json`. |
+| Backend Python không cài được dependency | Kiểm tra Python 3.11 và thử `python -m pip install -r backend/requirements-dev.txt`. |
 | Sản phẩm mới không hiện trong tìm kiếm AI | Chưa lập chỉ mục: gọi `POST /api/admin/reindex` với `X-Api-Key`. |

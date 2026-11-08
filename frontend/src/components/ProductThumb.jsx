@@ -4,7 +4,7 @@ import {
 } from "lucide-react";
 
 const P = (icon, from, to, ink) => ({ icon, from, to, ink });
-// Khóa = danh mục do backend trả về (xem backend/src/db/seed-data/category-map.json).
+// Khóa = danh mục do backend trả về (xem backend/app/seed-data/category-map.json).
 const META = {
   "Thời trang": P(Shirt, "#ffe9ee", "#fbd9e4", "#c2476b"),
   "Giày dép": P(Footprints, "#fff0e1", "#fde0c8", "#c9782f"),
