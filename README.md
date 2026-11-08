@@ -147,10 +147,7 @@ Workflow `.github/workflows/ci-cd.yml` chạy:
 | Biến | Ý nghĩa |
 |---|---|
 | `DATABASE_URL` | Kết nối PostgreSQL |
-| `AI_SERVICE_URL` | URL nội bộ của AI Service (khi `EMBEDDING_PROVIDER=local`) |
-| `EMBEDDING_PROVIDER` | `local` (AI Service tự host, mặc định) hoặc `jina` (Jina AI API, không cần AI Service) |
-| `JINA_API_KEY`, `JINA_MODEL` | Khóa API và model khi dùng `jina` (mặc định `jina-clip-v2`, cắt về 512 chiều) |
-| `JINA_IMAGE_INTERVAL_MS` | Khoảng cách tối thiểu giữa hai request ảnh (mặc định 2500; đặt 0 với key trả phí) |
+| `AI_SERVICE_URL` | URL nội bộ của AI Service |
 | `ADMIN_API_KEY` | Khóa quản trị, tối thiểu 16 ký tự |
 | `RUN_MIGRATIONS` | Tự chạy migration khi backend start |
 | `IMPORT_CSV_ON_START` | Đồng bộ CSV sản phẩm khi start |
@@ -161,33 +158,3 @@ Workflow `.github/workflows/ci-cd.yml` chạy:
 | `CORS_ORIGINS` | Danh sách origin, phân tách bằng dấu phẩy; chuỗi rỗng = same-origin |
 
 Rate limit của backend Python lưu trong bộ nhớ tiến trình, tương đương cách triển khai backend cũ; khi cần chạy nhiều replica cần chuyển rate limit sang Redis để dùng chung trạng thái.
-
-## Dùng Jina AI API thay cho AI Service
-
-Khi không có chỗ chạy AI Service (ví dụ Render Free, RAM 512 MB), backend có thể lấy embedding từ Jina AI:
-
-```bash
-EMBEDDING_PROVIDER=jina
-JINA_API_KEY=jina_xxx          # lấy tại https://jina.ai (API key có số token miễn phí cho key mới)
-```
-
-- Model `jina-clip-v2` đưa văn bản (đa ngôn ngữ) và ảnh vào cùng một không gian vector; vector 1024 chiều được cắt Matryoshka về 512 chiều nên **không phải đổi schema**.
-- Embedding của model cũ (CLIP ViT-B/32) **không dùng chung được** với Jina. Sau khi đổi provider phải tạo lại toàn bộ:
-  `python -m app.cli reindex --all` (lệnh này cũng xóa vector truy vấn cũ trong `search_history`).
-- Ảnh được thu nhỏ về tối đa 512x512 trước khi gửi, vì API tính phí theo ô 512x512 (ảnh lớn tốn gấp nhiều lần token).
-- Key free bị giới hạn token mỗi phút nên request ảnh được giãn cách (`JINA_IMAGE_INTERVAL_MS`); lập chỉ mục toàn bộ sản phẩm lần đầu mất khoảng 1 giờ.
-- Nếu hết token hoặc sai khóa, backend tự hạ cấp về tìm kiếm từ khóa như khi AI Service ngừng.
-
-### Xử lý sự cố: `/api/health` báo `"ai": "down"`
-
-Mở `https://<backend>/api/health` và đọc trường `provider`:
-
-| Kết quả | Nguyên nhân | Cách sửa |
-|---|---|---|
-| **không có** trường `provider` | backend đang chạy **code cũ** (chưa có `JinaClient`) | chép code mới vào repo, `git push`, đợi Render deploy xong |
-| `"provider": "local"` | thiếu `EMBEDDING_PROVIDER=jina`, backend đang gọi AI Service ở `localhost:8000` (không tồn tại trên Render) | Render → service backend → **Environment**: đặt `EMBEDDING_PROVIDER=jina` và `JINA_API_KEY`, rồi lưu để Render deploy lại |
-| `"provider": "jina"` và `"ai": "up"` | cấu hình đúng, nhưng `up` ở đây **chưa kiểm tra khóa** (health thường không gọi mạng) | mở `/api/health?deep=true` |
-
-`/api/health?deep=true` gọi thật Jina một lần (vài token, giới hạn 6 lần/phút/IP) và trả `aiError` cho biết lý do cụ thể: sai hoặc hết hạn khóa (`JINA_API_KEY`), hết token (xem số dư tại jina.ai), hay không kết nối được mạng.
-
-Log khởi động cũng ghi rõ chế độ: `Embedding provider: jina (model jina-clip-v2)` hoặc `Embedding provider: local (...)`, kèm cảnh báo nếu `NODE_ENV=production` mà vẫn trỏ tới `localhost`.

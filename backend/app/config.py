@@ -26,11 +26,6 @@ class Settings:
     text_min_similarity: float = 0.0
     image_min_similarity: float = 0.0
     text_image_weight: float = 0.3
-    embedding_provider: str = "local"  # local = AI Service tự host; jina = Jina AI Embeddings API
-    jina_api_key: str | None = None
-    jina_model: str = "jina-clip-v2"
-    jina_api_url: str = "https://api.jina.ai/v1/embeddings"
-    jina_image_interval_ms: int = 2500
 
     @property
     def is_production(self) -> bool:
@@ -111,15 +106,6 @@ def load_settings(source: dict[str, str] | None = None) -> Settings:
         raise ValueError("ADMIN_API_KEY phải có ít nhất 16 ký tự")
     raw_origins = (source if source is not None else os.environ).get("CORS_ORIGINS")
     origins = tuple(x.strip() for x in raw_origins.split(",") if x.strip()) if raw_origins is not None else ("http://localhost:5173", "http://localhost:8080")
-    provider = e.get("EMBEDDING_PROVIDER", "local").lower()
-    if provider not in {"local", "jina"}:
-        raise ValueError("EMBEDDING_PROVIDER phải là local hoặc jina")
-    jina_key = e.get("JINA_API_KEY")
-    if provider == "jina" and not jina_key:
-        raise ValueError("EMBEDDING_PROVIDER=jina bắt buộc phải có JINA_API_KEY")
-    jina_url = e.get("JINA_API_URL", "https://api.jina.ai/v1/embeddings")
-    if urlparse(jina_url).scheme != "https":
-        raise ValueError("JINA_API_URL phải là URL HTTPS")
     return Settings(
         env=env,
         port=_int(e, "PORT", 3000),
@@ -139,9 +125,4 @@ def load_settings(source: dict[str, str] | None = None) -> Settings:
         text_min_similarity=_float(e, "TEXT_MIN_SIMILARITY", 0),
         image_min_similarity=_float(e, "IMAGE_MIN_SIMILARITY", 0),
         text_image_weight=_float(e, "TEXT_IMAGE_WEIGHT", 0.3),
-        embedding_provider=provider,
-        jina_api_key=jina_key,
-        jina_model=e.get("JINA_MODEL", "jina-clip-v2"),
-        jina_api_url=jina_url,
-        jina_image_interval_ms=_int(e, "JINA_IMAGE_INTERVAL_MS", 2500, 0),
     )

@@ -11,7 +11,6 @@ def json_post(body, headers=None):
 async def test_health_and_products_contract(client):
     health = await client.get("/api/health")
     assert health.status_code == 200
-    assert health.json()["provider"] == "jina"  # cho biết backend đang dùng nguồn embedding nào
     assert (await client.get("/api/products")).json()["limit"] == 24
     assert (await client.get("/api/products?limit=abc")).status_code == 400
     assert (await client.get("/api/products?limit=1000")).json()["error"]["code"] == "VALIDATION_ERROR"
@@ -93,14 +92,3 @@ async def test_json_schema_keeps_number_types_and_body_limit(client):
     oversized = await client.post("/api/events", content=b" " * (100 * 1024 + 1), headers={"content-type": "application/json", "content-length": str(100 * 1024 + 1)})
     assert oversized.status_code == 413
     assert oversized.json()["error"]["code"] == "FILE_TOO_LARGE"
-
-
-@pytest.mark.asyncio
-async def test_health_deep_is_opt_in_and_rate_limited(client):
-    services = client.services
-    await client.get("/api/health")
-    assert services.calls["health_deep"] is False  # health check thường không được tốn token
-    assert (await client.get("/api/health?deep=true")).status_code == 200
-    assert services.calls["health_deep"] is True
-    codes = [(await client.get("/api/health?deep=true")).status_code for _ in range(8)]
-    assert 429 in codes  # mỗi lượt kiểm tra sâu tốn token Jina nên bị giới hạn

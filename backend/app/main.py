@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt, field
 from starlette.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from .ai_client import create_ai_client
+from .ai_client import AiClient
 from .config import Settings, load_settings
 from .constants import ALLOWED_IMAGE_TYPES, DEFAULT_PAGE_SIZE, DEFAULT_RECOMMEND_LIMIT, DEFAULT_SEARCH_LIMIT, MAX_PAGE_SIZE, MAX_RECOMMEND_LIMIT, MAX_SEARCH_LIMIT, BUDGETS, RECOMMEND_SORTS
 from .errors import HttpError
@@ -235,18 +235,6 @@ def _client_ip(request: Request, settings: Settings) -> str:
     return request.client.host if request.client else "unknown"
 
 
-def _log_embedding_provider(settings: Settings, ai) -> None:
-    """Ghi rõ nguồn embedding vào log khởi động: lỗi `ai: down` thường chỉ vì chạy nhầm chế độ."""
-    if ai.provider == "jina":
-        logger.info("Embedding provider: jina (model %s)", settings.jina_model)
-        return
-    logger.info("Embedding provider: local (AI Service tại %s)", settings.ai_service_url)
-    host = urlsplit(settings.ai_service_url).hostname
-    if settings.is_production and host in {"localhost", "127.0.0.1", "::1"}:
-        logger.warning("NODE_ENV=production nhưng EMBEDDING_PROVIDER=local đang trỏ tới %s: trừ khi AI Service chạy cùng máy, "
-                       "đây gần như chắc chắn là thiếu EMBEDDING_PROVIDER=jina (và JINA_API_KEY). /api/health sẽ báo ai: down.", host)
-
-
 def create_app(settings: Settings | None = None, services_override: dict | None = None) -> FastAPI:
     settings = settings or load_settings()
     python_log_level = {
@@ -285,8 +273,7 @@ def create_app(settings: Settings | None = None, services_override: dict | None 
             products_repo = ProductRepository(pool)
             history_repo = SearchHistoryRepository(pool)
             event_repo = EventRepository(pool)
-            ai = create_ai_client(settings)
-            _log_embedding_provider(settings, ai)
+            ai = AiClient(settings.ai_service_url, settings.ai_timeout_ms)
             embeddings = EmbeddingService(ai)
             indexing = IndexingService(products_repo, embeddings, logger)
             search = SearchService(products_repo, history_repo, embeddings, logger, settings)
@@ -400,10 +387,8 @@ def create_app(settings: Settings | None = None, services_override: dict | None 
         app.state.rate_limiter.check(_client_ip(request, settings), bucket, limit)
 
     @app.get("/api/health")
-    async def health(request: Request, deep: bool = False):
-        if deep:
-            apply_rate_limit(request, "health-deep", 6)  # mỗi lần gọi tốn token Jina nên giới hạn chặt
-        result = await services(request)["health"].check(deep=deep)
+    async def health(request: Request):
+        result = await services(request)["health"].check()
         return JSONResponse(status_code=503 if result["status"] == "error" else 200, content=result)
 
     @app.get("/api/products")

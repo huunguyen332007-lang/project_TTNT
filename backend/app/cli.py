@@ -5,11 +5,11 @@ import asyncio
 import logging
 from pathlib import Path
 
-from .ai_client import create_ai_client
+from .ai_client import AiClient
 from .config import load_settings
 from .importer import DEFAULT_CSV, import_csv
 from .main import _run_migrations, _wait_for_database
-from .repositories import ProductRepository, SearchHistoryRepository
+from .repositories import ProductRepository
 from .services import EmbeddingService, IndexingService
 
 
@@ -41,7 +41,7 @@ async def run(args):
                                       keep_conflicts=args.keep_conflicts, replace=args.replace, dry_run=args.dry_run)
             log.info("CSV import result: %s", result)
             if not args.dry_run and not args.no_index:
-                ai = create_ai_client(settings)
+                ai = AiClient(settings.ai_service_url, settings.ai_timeout_ms)
                 indexing = IndexingService(products, EmbeddingService(ai), log)
                 await indexing.reindex_missing(concurrency=4)
             return
@@ -49,10 +49,7 @@ async def run(args):
             if args.all:
                 cleared = await products.clear_embeddings()
                 log.info("Đã xóa embedding của %s sản phẩm", cleared)
-                # Vector truy vấn cũ thuộc không gian của model cũ, trộn với model mới sẽ cho taste vector sai.
-                stale = await SearchHistoryRepository(pool).clear_query_embeddings()
-                log.info("Đã xóa embedding của %s truy vấn trong lịch sử tìm kiếm", stale)
-            ai = create_ai_client(settings)
+            ai = AiClient(settings.ai_service_url, settings.ai_timeout_ms)
             indexing = IndexingService(products, EmbeddingService(ai), log)
             result = await indexing.reindex_missing(concurrency=4)
             log.info("Indexing result: %s", result)

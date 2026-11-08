@@ -263,9 +263,6 @@ class SearchHistoryRepository(BaseRepository):
     async def clear(self, client_id):
         return await self.execute("DELETE FROM search_history WHERE client_id=%s", (client_id,))
 
-    async def clear_query_embeddings(self):
-        return await self.execute("UPDATE search_history SET query_embedding=NULL WHERE query_embedding IS NOT NULL")
-
 
 class EventRepository(BaseRepository):
     async def record(self, client_id, kind, query, product_id, position, event):

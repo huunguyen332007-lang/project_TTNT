@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import base64
-import io
 import math
 import re
 import unicodedata
@@ -113,34 +111,3 @@ def taste_from_history(rows: list[dict], max_items: int = 5, decay: float = 0.7)
     for i, row in enumerate(picked):
         vectors.append([v * decay ** i for v in row["embedding"]])
     return {"embedding": mean_vector(vectors), "queries": [r["query"].strip() for r in picked]}
-
-
-MAX_EMBED_IMAGE_PIXELS = 40_000_000
-
-
-def prepare_image_for_embedding(buffer: bytes, max_side: int = 512) -> str:
-    """Thu nhỏ ảnh về tối đa max_side x max_side, mã hóa JPEG rồi trả về base64.
-
-    API tính phí theo ô 512x512 nên ảnh lớn hơn sẽ tốn gấp nhiều lần token mà không cải thiện kết quả.
-    Ném ValueError nếu không đọc được ảnh.
-    """
-    from PIL import Image, ImageOps, UnidentifiedImageError
-
-    try:
-        with Image.open(io.BytesIO(buffer)) as source:
-            if source.width * source.height > MAX_EMBED_IMAGE_PIXELS:
-                raise ValueError("Ảnh có kích thước quá lớn")
-            image = ImageOps.exif_transpose(source)
-            image.thumbnail((max_side, max_side))
-            if image.mode in ("RGBA", "LA") or (image.mode == "P" and "transparency" in image.info):
-                rgba = image.convert("RGBA")
-                flat = Image.new("RGB", rgba.size, (255, 255, 255))
-                flat.paste(rgba, mask=rgba.getchannel("A"))
-                image = flat
-            else:
-                image = image.convert("RGB")
-            out = io.BytesIO()
-            image.save(out, format="JPEG", quality=90)
-    except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
-        raise ValueError("Không đọc được ảnh") from exc
-    return base64.b64encode(out.getvalue()).decode("ascii")

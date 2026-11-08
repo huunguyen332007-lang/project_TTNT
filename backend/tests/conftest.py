@@ -26,9 +26,8 @@ class Services:
         self.events = self
         self.indexing = self
 
-    async def check(self, deep=False):
-        self.calls["health_deep"] = deep
-        return {"status": self.health_status, "services": {"database": "up", "ai": "up"}, "provider": "jina"}
+    async def check(self):
+        return {"status": self.health_status, "services": {"database": "up", "ai": "up"}}
 
     async def list(self, category=None, limit=24, offset=0):
         return {"items": [PRODUCT], "total": 1, "limit": limit, "offset": offset}

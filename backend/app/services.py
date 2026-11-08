@@ -340,27 +340,17 @@ class HealthService:
     def __init__(self, pool, ai):
         self.pool, self.ai = pool, ai
 
-    async def check(self, deep: bool = False):
-        """deep=True: với Jina gọi thật một embedding nhỏ để xác nhận khóa API và hạn mức (tốn vài token)."""
+    async def check(self):
         try:
             async with self.pool.connection() as conn:
                 await conn.execute("SELECT 1")
             database = "up"
         except Exception:
             database = "down"
-        provider = getattr(self.ai, "provider", "unknown")
-        ai_error = None
         try:
-            await (self.ai.probe() if deep else self.ai.health())
+            await self.ai.health()
             ai_status = "up"
-        except Exception as exc:
+        except Exception:
             ai_status = "down"
-            ai_error = getattr(exc, "message", None) or "Không kết nối được dịch vụ AI"
         status = "error" if database == "down" else "degraded" if ai_status == "down" else "ok"
-        result = {"status": status, "services": {"database": database, "ai": ai_status}, "provider": provider}
-        if ai_status == "down":
-            result["aiError"] = ai_error
-            if provider == "local":
-                result["hint"] = ("Backend đang chạy EMBEDDING_PROVIDER=local nên gọi AI Service tự host. "
-                                  "Nếu không có AI Service (ví dụ trên Render free), đặt EMBEDDING_PROVIDER=jina và JINA_API_KEY.")
-        return result
+        return {"status": status, "services": {"database": database, "ai": ai_status}}
