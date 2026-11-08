@@ -25,9 +25,9 @@ from .config import Settings, load_settings
 from .constants import ALLOWED_IMAGE_TYPES, DEFAULT_PAGE_SIZE, DEFAULT_RECOMMEND_LIMIT, DEFAULT_SEARCH_LIMIT, MAX_PAGE_SIZE, MAX_RECOMMEND_LIMIT, MAX_SEARCH_LIMIT, BUDGETS, RECOMMEND_SORTS
 from .errors import HttpError
 from .importer import import_csv
-from .repositories import ProductRepository, SearchHistoryRepository, EventRepository, StatsRepository
+from .repositories import ProductRepository, SearchHistoryRepository, EventRepository, StatsRepository, ReviewRepository
 from .services import (EmbeddingService, IndexingService, ProductService, SearchService, HistoryService,
-                       EventService, RecommendService, RecommendationService, HealthService, StatsService)
+                       EventService, RecommendService, RecommendationService, HealthService, StatsService, ReviewService)
 
 logger = logging.getLogger("ttnt.backend")
 UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
@@ -299,6 +299,7 @@ def create_app(settings: Settings | None = None, services_override: dict | None 
                 "history": HistoryService(history_repo),
                 "events": EventService(event_repo),
                 "stats": StatsService(StatsRepository(pool)),
+                "reviews": ReviewService(ReviewRepository(pool), products_repo),
                 "indexing": indexing,
                 "repositories": {"products": products_repo, "history": history_repo},
                 "ai": ai,
@@ -432,6 +433,15 @@ def create_app(settings: Settings | None = None, services_override: dict | None 
             raise HttpError(400, "id phải là số nguyên dương", "VALIDATION_ERROR")
         items = await services(request)["recommendations"].similar_to(product_id, limit)
         return {"items": items}
+
+    @app.get("/api/products/{product_id}/reviews")
+    async def product_reviews(request: Request, product_id: int,
+                              limit: Annotated[int, Query(ge=1, le=50)] = 10,
+                              offset: Annotated[int, Query(ge=0, le=10_000)] = 0):
+        """Đánh giá của khách hàng cho sản phẩm, đánh giá được nhiều người thấy hữu ích đứng trước."""
+        if product_id <= 0:
+            raise HttpError(400, "id phải là số nguyên dương", "VALIDATION_ERROR")
+        return await services(request)["reviews"].list_for_product(product_id, limit, offset)
 
     @app.delete("/api/products/{product_id}", status_code=204)
     async def delete_product(request: Request, product_id: int, _admin=Depends(require_admin)):
