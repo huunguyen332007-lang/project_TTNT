@@ -1,0 +1,8 @@
+# transformers và sentence-transformers đã khóa đúng phiên bản của ai_service để model lưu ra nạp lại y hệt.
+# Cài torch theo hướng dẫn trên pytorch.org cho máy bạn (Google Colab đã có sẵn torch, numpy, pillow).
+torch>=2.5
+transformers==4.46.3
+sentence-transformers==3.3.1
+numpy
+pillow
+pytest>=8
