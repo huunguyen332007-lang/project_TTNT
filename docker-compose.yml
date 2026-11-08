@@ -29,7 +29,9 @@ services:
     restart: unless-stopped
 
   backend:
-    build: ./backend
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
     container_name: ttnt-backend
     environment:
       NODE_ENV: development

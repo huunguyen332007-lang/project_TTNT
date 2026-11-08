@@ -58,6 +58,13 @@ export function normalizeProduct(r) {
 }
 
 /** Xóa lịch sử tìm kiếm lưu trong PostgreSQL của trình duyệt này (để nó thôi ảnh hưởng tới gợi ý). */
+/**
+ * Ghi lại việc bấm vào một sản phẩm (kèm từ khóa và vị trí) để backend lưu vào PostgreSQL phục vụ đánh giá/huấn luyện.
+ * Không bao giờ làm hỏng giao diện: lỗi mạng bị bỏ qua.
+ */
+export const logClick = ({ productId, kind = "browse", query = "", position }) =>
+  request("/events", { method: "POST", body: { productId, kind, query, ...(Number.isInteger(position) ? { position } : {}) } }).catch(() => {});
+
 export const clearHistory = () => request("/history", { method: "DELETE" });
 
 export const getCategories = (signal) => request("/categories", { signal }).then((d) => d.items.map((c) => c.name));

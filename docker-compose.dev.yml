@@ -1,0 +1,15 @@
+# Dùng cùng docker-compose.yml để bật hot reload và cài pytest trong backend Python:
+# docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ./backend/app:/app/app
+      - ./backend/tests:/app/tests
+      - ./backend/pytest.ini:/app/pytest.ini:ro
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "3000", "--reload"]
+    environment:
+      NODE_ENV: development
+      LOG_LEVEL: debug

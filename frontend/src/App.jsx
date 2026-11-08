@@ -4,7 +4,7 @@ import {
   Search, ArrowUpRight, Sparkles, Compass, Clock3, X, Menu,
   SlidersHorizontal, Command, History, Trash2, Camera
 } from "lucide-react";
-import { clearHistory, getCategories, getSimilar } from "./api.js";
+import { clearHistory, getCategories, getSimilar, logClick } from "./api.js";
 import { clearSearchRequests, getRecentSearches } from "./searchCache.js";
 import { useRecommendations } from "./useRecommendations.js";
 import { budgetOptions } from "./budgets.js";
@@ -117,7 +117,9 @@ export default function App() {
 
   const personalized = interests.length > 0 || viewed.length > 0 || budget !== "any" || !!query.trim() || !!image;
 
-  function openProduct(p) {
+  // position: vị trí trong danh sách kết quả (chỉ truyền khi bấm từ danh sách chính) để ghi nhận hành vi.
+  function openProduct(p, position) {
+    if (Number.isInteger(position)) logClick({ productId: p.id, kind: image ? "image" : query.trim() ? "text" : "browse", query: query.trim(), position });
     setSelected(p);
     setViewed((prev) => {
       const { score, reason, ...snap } = p; // chỉ lưu thông tin sản phẩm
@@ -288,7 +290,7 @@ export default function App() {
             <>
               <div className="inspiration-grid">
                 {results.map((p, i) => (
-                  <ProductCard key={p.id} product={p} index={i} personalized={(personalized || fromHistory) && sort === "relevance"} onOpen={openProduct} />
+                  <ProductCard key={p.id} product={p} index={i} personalized={(personalized || fromHistory) && sort === "relevance"} onOpen={(prod) => openProduct(prod, i)} />
                 ))}
               </div>
               {rec.hasMore && (

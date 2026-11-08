@@ -1,5 +1,6 @@
 fastapi==0.115.6
-uvicorn[standard]==0.32.1
+# Dùng Uvicorn lõi; AI Service chỉ cung cấp HTTP REST, không cần extra websockets/watchfiles.
+uvicorn==0.32.1
 python-multipart==0.0.20
 pydantic-settings==2.6.1
 pillow==11.0.0

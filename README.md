@@ -1,169 +1,193 @@
-# MachineSearch (project_TTNT)
+# TTNT — Tìm kiếm và gợi ý sản phẩm bằng AI
 
-Hệ thống gợi ý sản phẩm bằng AI. Người dùng có thể **mô tả bằng lời** hoặc **tải ảnh lên**, hệ thống trả về những sản phẩm gần nhất.
-
-- Tìm bằng văn bản: embedding văn bản (CLIP đa ngôn ngữ, hiểu tiếng Việt) kết hợp full-text, lưu trong PostgreSQL + pgvector.
-- Tìm bằng hình ảnh: embedding ảnh (CLIP ViT-B/32) so khớp với ảnh sản phẩm.
-- Gợi ý: sản phẩm tương tự, và gợi ý cá nhân hóa từ lịch sử tìm kiếm (không cần đăng nhập).
+Dự án sử dụng React + Vite ở frontend, **Python FastAPI ở backend**, FastAPI ở AI Service và PostgreSQL + pgvector để lưu trữ/tìm kiếm embedding.
 
 ## Kiến trúc
 
-```
-Trình duyệt ──► nginx (frontend, React) ──/api──► backend (Node.js + Express) ──► PostgreSQL + pgvector
-                                                        │
-                                                        └──► ai-service (FastAPI + CLIP) : tạo embedding
-```
+| Dịch vụ | Công nghệ | Cổng | Vai trò |
+|---|---|---:|---|
+| Frontend | React 18, Vite, nginx | 8080 | Giao diện tìm kiếm và gợi ý |
+| Backend | Python 3.11, FastAPI, psycopg 3 | 3000 | API, nghiệp vụ, truy vấn PostgreSQL, cá nhân hóa |
+| AI Service | Python 3.11, FastAPI, CLIP | 8000 | Embedding văn bản và hình ảnh |
+| Database | PostgreSQL 16 + pgvector | 5432 | Sản phẩm, vector, lịch sử tìm kiếm, click events |
+| Reverse proxy | Caddy | 80/443 | HTTPS và định tuyến production |
 
-| Thành phần | Công nghệ | Thư mục |
-|---|---|---|
-| Frontend | React 18 + Vite (JavaScript), giao diện PickForYou | `frontend/` |
-| Backend API | Node.js 22, Express 5, pg, zod | `backend/` |
-| AI service | Python 3.11, FastAPI, sentence-transformers (CLIP) | `ai_service/` |
-| Database | PostgreSQL 16 + pgvector | image `pgvector/pgvector:pg16` |
+Backend Node.js/Express đã được thay thế. Schema PostgreSQL, ba migration SQL hiện tại, dữ liệu CSV, route và định dạng request/response công khai được giữ lại.
 
-## Cấu trúc thư mục
+## Chạy trên máy tính bằng Docker
 
-```
-backend/
-  src/
-    config/         đọc & kiểm tra biến môi trường
-    routes/         khai báo đường dẫn API
-    controllers/    nhận request, gọi service, trả response
-    services/       logic nghiệp vụ (tìm kiếm, gợi ý, lập chỉ mục...)
-    repositories/   toàn bộ câu lệnh SQL
-    clients/        gọi dịch vụ ngoài (ai-service)
-    middlewares/    validate, upload, rate-limit, xử lý lỗi, bảo vệ admin
-    validators/     schema zod cho dữ liệu vào
-    db/             pool, migration (.sql), dữ liệu CSV
-    import/         đọc & làm sạch CSV sản phẩm (hàm thuần, có test)
-    scripts/        migrate / import-csv / reindex (chạy bằng npm run ...)
-    utils/          http-error, vector, logger...
-    app.js          dựng Express app      server.js  khởi động
-  tests/            unit/ (logic) và http/ (toàn bộ API)
-ai_service/app/     config, routers, services (embedder CLIP)
-frontend/src/       giao diện PickForYou: App.jsx, api.js, useRecommendations.js, components/ (xem frontend/README.md)
-training/           fine-tune CLIP (xem training/README.md)
-deploy/             Caddyfile, server-setup.sh, backup.sh
-docs/DEPLOY.md      hướng dẫn đưa lên server
-.github/workflows/  CI/CD
-```
-
-## Chạy trên máy cá nhân
-
-Cần Docker Desktop (hoặc Docker Engine + Compose) và khoảng 4 GB RAM trống.
+Yêu cầu: Docker Desktop (Windows/macOS) hoặc Docker Engine + Compose plugin (Linux). Mở Terminal tại thư mục gốc dự án:
 
 ```bash
+# Tạo file môi trường (không bắt buộc cho cấu hình local mặc định)
+cp .env.example .env
+
+# Build và chạy toàn bộ hệ thống
 docker compose up --build
 ```
 
-Lần đầu mất vài phút vì image `ai-service` tải sẵn model (~1 GB). Sau đó:
+Mở giao diện tại `http://localhost:8080`; API tại `http://localhost:3000/api/health`; tài liệu Swagger tại `http://localhost:3000/docs`; AI Service tại `http://localhost:8000/docs`.
 
-| Địa chỉ | Là gì |
-|---|---|
-| http://localhost:8080 | Giao diện web |
-| http://localhost:3000/api/health | Kiểm tra backend |
-| http://localhost:8000/docs | Tài liệu API của ai-service |
-
-Backend tự đồng bộ `backend/src/db/seed-data/marketplace-products.csv` vào PostgreSQL trước khi mở API. Frontend gọi `/api/recommend` và `/api/categories` để tải sản phẩm/danh mục trực tiếp từ database, nên dữ liệu CSV hiển thị ngay cả khi AI chưa tạo xong embedding. AI sẽ lập chỉ mục nền sau khi backend khởi động (xem log: `docker compose logs -f backend`).
-
-### Nạp dữ liệu sản phẩm thật (CSV Shopee/Lazada)
-
-File `backend/src/db/seed-data/marketplace-products.csv` (1.784 dòng dữ liệu) được tự động làm sạch và đồng bộ vào PostgreSQL mỗi khi backend khởi động (mặc định `IMPORT_CSV_ON_START=true`). Lần đầu sẽ thêm mới; những lần sau cập nhật theo `source_url`, không tạo bản ghi trùng và không xóa embedding nếu nội dung không đổi.
-
-Để nạp thủ công sau khi thay CSV, dùng:
+Các lệnh thường dùng:
 
 ```bash
-docker compose exec backend npm run import:csv
+docker compose ps
+docker compose logs -f backend
+docker compose logs -f ai-service
+
+# Chạy backend ở chế độ phát triển (hot reload + pytest có sẵn)
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+docker compose -f docker-compose.yml -f docker-compose.dev.yml exec backend pytest -q
+
+docker compose down                     # giữ dữ liệu PostgreSQL trong volume
+# Chỉ xóa DB khi thật sự muốn làm mới toàn bộ dữ liệu:
+docker compose down -v
 ```
 
-Chỉ dùng `--replace` khi bạn chủ động muốn xóa toàn bộ sản phẩm đang có trước khi nạp CSV:
+Lần chạy đầu tải model CLIP khi build AI image; cần Internet và dung lượng RAM/đĩa phù hợp. Backend import CSV vào database theo `IMPORT_CSV_ON_START=true`, sau đó tạo embedding nền. Trong lúc AI Service chưa sẵn sàng, tìm kiếm văn bản tự hạ cấp về tìm kiếm từ khóa.
 
-- `--replace` xóa các sản phẩm hiện có trước khi nạp. Bỏ cờ này để nạp thêm/cập nhật; chạy lại nhiều lần không tạo bản ghi trùng (khóa theo URL gốc, đã bỏ query string).
-- `--dry-run` chỉ in thống kê làm sạch; `--no-index` nạp dữ liệu nhưng để tạo embedding sau (`npm run reindex`); `--keep-conflicts` giữ cả các dòng bị gán nhầm ảnh.
-- Làm sạch: loại 28 dòng có ảnh bị gán nhầm (một URL ảnh dùng chung cho nhiều danh mục khác nhau) và 11 dòng đăng trùng → còn 1.745 sản phẩm. Giá `0₫` và đánh giá `0` trong nguồn coi là "không có dữ liệu".
-- 37 nhãn gốc được gom thành 10 danh mục hiển thị ở tab; bảng gom nhóm nằm ở `backend/src/db/seed-data/category-map.json` (sửa rồi import lại với `--replace`). Nhãn gốc được giữ trong trường `tag`.
-- Tạo embedding cho ~1.700 sản phẩm trên CPU mất khoảng vài chục phút (phần lớn là tải ảnh và chạy CLIP). Dữ liệu đã hiển thị được ngay, tìm kiếm ngữ nghĩa sẽ tốt dần khi chỉ mục xong.
+## Phát triển backend Python trực tiếp
 
-Dùng model đã fine-tune: xem `training/README.md` và `docker-compose.finetuned.yml`.
-
-### Chạy từng phần (để phát triển)
+Yêu cầu Python 3.11+. Cần PostgreSQL 16 có extension pgvector và AI Service đang chạy hoặc được trỏ đúng URL.
 
 ```bash
-docker compose up -d postgres ai-service          # hạ tầng
+cd backend
+python -m venv .venv
+# Windows PowerShell: .venv\Scripts\Activate.ps1
+# macOS/Linux: source .venv/bin/activate
+pip install -r requirements-dev.txt
+cp .env.example .env
 
-cd backend && cp .env.example .env && npm install
-npm run dev                                       # API ở :3000, tự reload
-
-cd frontend && npm install
-npm run dev                                       # giao diện ở :5173, proxy /api về :3000
+# Đặt DATABASE_URL và AI_SERVICE_URL phù hợp với môi trường của bạn.
+uvicorn app.main:app --reload --host 0.0.0.0 --port 3000
 ```
 
-## Cách tìm kiếm hoạt động
+Các tác vụ quản trị (thực hiện trong thư mục `backend/`):
 
-**Văn bản (hybrid).** Câu truy vấn được ai-service chuyển thành vector 512 chiều. PostgreSQL lấy 50 sản phẩm gần nhất theo vector (HNSW, cosine) và 50 sản phẩm khớp từ khóa (full-text), rồi trộn hai bảng xếp hạng bằng Reciprocal Rank Fusion. RRF chỉ dùng thứ hạng nên không cần chuẩn hóa điểm giữa hai nhánh. Nếu ai-service không phản hồi, hệ thống tự dùng riêng nhánh từ khóa.
+```bash
+python -m app.cli migrate
+python -m app.cli import-csv --dry-run
+python -m app.cli import-csv
+python -m app.cli import-csv --replace --no-index
+python -m app.cli reindex
+python -m app.cli reindex --all   # xóa và tạo lại embedding; chỉ dùng sau khi đổi model
+pytest -q
+```
 
-**Ảnh.** Ảnh tải lên (tối đa 5 MB) được chuyển thành vector bằng CLIP rồi so với vector ảnh của từng sản phẩm.
+Khi chạy trực tiếp trên máy, `DATABASE_URL` thường dùng `localhost:5432`. Khi chạy trong Compose, hostname database là `postgres` và hostname AI Service là `ai-service`.
 
-**Gợi ý.** `GET /api/products/:id/similar` lấy trung bình độ giống về mô tả và hình ảnh. `GET /api/recommendations` lấy vector trung bình của 5 truy vấn gần nhất của trình duyệt (định danh ẩn danh `X-Client-Id`), chưa có lịch sử thì trả sản phẩm mới nhất.
+## API giữ nguyên
 
-**Gợi ý cá nhân hóa (`POST /api/recommend`).** Giao diện chỉ cần một endpoint này cho mọi thao tác duyệt/tìm. Có từ khóa thì lấy ứng viên bằng tìm kiếm hybrid ở trên; không có thì chấm điểm cả danh mục. Điểm = từ khóa (0.40) + giống các sản phẩm đã xem (0.20, vector trung bình embedding văn bản) + danh mục yêu thích (0.15) + danh mục đã xem (0.10) + điểm đánh giá (0.15). Ngân sách (`low` < 100k, `mid` 100k–300k, `high` 300k–1 triệu, `premium` > 1 triệu) là bộ lọc cứng và loại cả sản phẩm chưa có giá; `sort` áp dụng trên toàn bộ kết quả trước khi phân trang bằng `limit`/`offset`. Lịch sử xem do trình duyệt lưu và gửi lên (`viewedIds`), server không lưu. `mode`: `hybrid` (tìm kiếm AI), `keyword` (AI tạm tắt), `personalized`, `browse`. Chỉ lượt có từ khóa chịu giới hạn `SEARCH_RATE_LIMIT_PER_MIN`.
+Tất cả endpoint nằm dưới `/api`.
 
-## API
-
-| Method | Đường dẫn | Mô tả |
+| Method | Endpoint | Mô tả |
 |---|---|---|
-| GET | `/api/health` | `ok` / `degraded` (AI tắt) / `error` (DB lỗi) |
-| GET | `/api/products?category=&limit=&offset=` | Danh sách sản phẩm trực tiếp từ PostgreSQL |
-| GET | `/api/products/:id` | Chi tiết |
-| GET | `/api/products/:id/similar?limit=` | Sản phẩm tương tự |
-| GET | `/api/categories` | Danh mục và số lượng |
-| POST | `/api/search/text` | Body JSON `{ "query": "...", "category"?: "...", "limit"?: 12 }` |
-| POST | `/api/search/image` | `multipart/form-data`, trường `image` (+ `category`, `limit`) |
-| POST | `/api/recommend` | Gợi ý cá nhân hóa cho giao diện: `{ query?, category?, interests?, budget?, viewedIds?, sort?, limit?, offset? }` → `{ items, total, mode }` |
-| GET | `/api/recommendations` | Gợi ý theo lịch sử tìm kiếm lưu ở server (không dùng bởi giao diện hiện tại) |
-| GET / DELETE | `/api/history` | Xem / xóa lịch sử tìm kiếm của trình duyệt |
-| POST | `/api/products` | **Admin**: thêm sản phẩm và tự lập chỉ mục |
-| DELETE | `/api/products/:id` | **Admin** |
-| POST | `/api/admin/reindex` | **Admin**: tạo embedding còn thiếu |
+| GET | `/health` | Health status database và AI |
+| GET | `/products` | Danh sách, lọc danh mục, phân trang |
+| GET | `/products/:id` | Chi tiết sản phẩm |
+| GET | `/products/:id/similar` | Sản phẩm tương tự |
+| POST | `/products` | Admin: thêm sản phẩm và lập chỉ mục |
+| DELETE | `/products/:id` | Admin: xóa sản phẩm |
+| GET | `/categories` | Danh mục và số lượng sản phẩm |
+| POST | `/search/text` | Tìm kiếm chữ: semantic + full-text hybrid |
+| POST | `/search/image` | Tìm kiếm ảnh bằng multipart field `image` |
+| POST | `/recommend` | Gợi ý cá nhân hóa theo query, interests, budget, viewedIds |
+| GET | `/recommendations` | Gợi ý dựa vào lịch sử tìm kiếm hoặc sản phẩm mới |
+| GET / DELETE | `/history` | Đọc hoặc xóa lịch sử của client hiện tại |
+| POST | `/events` | Ghi click/like/dislike vào `click_events` |
+| POST | `/admin/reindex` | Admin: tạo embedding còn thiếu |
 
-Endpoint admin cần header `X-Api-Key: <ADMIN_API_KEY>`. Lỗi luôn có dạng `{ "error": { "code": "...", "message": "..." } }`.
-
-Thêm một sản phẩm:
-
-```bash
-curl -X POST http://localhost:3000/api/products \
-  -H "X-Api-Key: $ADMIN_API_KEY" -H "Content-Type: application/json" \
-  -d '{"title":"Ghế gỗ sồi","category":"Nội thất","imageUrl":"https://.../ghe.jpg","description":"Ghế gỗ sồi tối giản","price":1290000}'
-```
+`X-Client-Id` vẫn là UUID ẩn danh do frontend tạo. Các endpoint quản trị yêu cầu `X-Api-Key: <ADMIN_API_KEY>`. Lỗi được chuẩn hóa thành `{ "error": { "code": "...", "message": "...", "details": [...] } }`.
 
 ## Test
 
 ```bash
-cd backend && npm test           # unit + toàn bộ API (không cần database thật)
-cd ai_service && pip install -r requirements-dev.txt && pytest
+# Backend: unit + API tests (không cần database)
+cd backend
+pip install -r requirements-dev.txt
+pytest -q
+
+# Tích hợp PostgreSQL/pgvector: đặt TEST_DATABASE_URL để bật test DB
+# CI GitHub Actions tự khởi tạo pgvector/pg16 và chạy nhóm test này.
+
+# AI Service: dùng embedder giả, không tải model
+cd ../ai_service
+pip install -r requirements-dev.txt
+pytest -q
+
+# Frontend
+cd ../frontend
+npm ci
+node --test "tests/**/*.test.mjs"
+npm run build
 ```
 
-Test của ai-service dùng embedder giả nên không cần tải model.
+## Docker Compose
 
-## Quy trình Git và CI/CD
+- `docker-compose.yml`: toàn bộ stack local, database lưu trong named volume `pgdata`.
+- `docker-compose.dev.yml`: override để hot reload backend Python: `docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build`.
+- `docker-compose.prod.yml`: dùng các image đã publish lên GHCR, Caddy làm reverse proxy.
+- `docker-compose.finetuned.yml`: nạp checkpoint CLIP đã fine-tune; phải reindex toàn bộ embedding trước khi dùng model mới.
 
-Giữ quy ước của nhóm: làm tính năng ở `feature` → push lên `dev` để kiểm tra → merge vào `main`.
+## CI/CD GitHub Actions
 
-| Sự kiện | Chạy gì |
+Workflow `.github/workflows/ci-cd.yml` chạy:
+
+1. Backend: Python compile, unit/API tests và PostgreSQL integration tests.
+2. Frontend: Node test và Vite build.
+3. AI Service: pytest.
+4. Validate Compose local/dev/production.
+5. Khi push `main`: build và publish ba image `ttnt-backend`, `ttnt-frontend`, `ttnt-ai-service` lên GHCR, tag `latest` và `sha-<commit>`.
+6. Deploy qua SSH: upload Compose/Caddy/backup config, pull image theo commit, khởi động stack và chờ backend healthy.
+
+Để bật CD, thiết lập GitHub repository secrets: `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`; tùy chọn `DEPLOY_PORT` (mặc định 22), `DEPLOY_PATH` (mặc định `/opt/ttnt`). Xem [docs/DEPLOY.md](docs/DEPLOY.md) để chuẩn bị server, SSH và file `.env` production.
+
+## Cấu hình quan trọng
+
+| Biến | Ý nghĩa |
 |---|---|
-| Push `feature`/`dev`, mở PR vào `dev`/`main` | Test backend, build frontend, test ai-service, kiểm tra Compose |
-| Push vào `main` | Như trên, rồi build 3 image, đẩy lên GitHub Container Registry, SSH vào server và `docker compose up -d` |
+| `DATABASE_URL` | Kết nối PostgreSQL |
+| `AI_SERVICE_URL` | URL nội bộ của AI Service (khi `EMBEDDING_PROVIDER=local`) |
+| `EMBEDDING_PROVIDER` | `local` (AI Service tự host, mặc định) hoặc `jina` (Jina AI API, không cần AI Service) |
+| `JINA_API_KEY`, `JINA_MODEL` | Khóa API và model khi dùng `jina` (mặc định `jina-clip-v2`, cắt về 512 chiều) |
+| `JINA_IMAGE_INTERVAL_MS` | Khoảng cách tối thiểu giữa hai request ảnh (mặc định 2500; đặt 0 với key trả phí) |
+| `ADMIN_API_KEY` | Khóa quản trị, tối thiểu 16 ký tự |
+| `RUN_MIGRATIONS` | Tự chạy migration khi backend start |
+| `IMPORT_CSV_ON_START` | Đồng bộ CSV sản phẩm khi start |
+| `TEXT_MIN_SIMILARITY`, `IMAGE_MIN_SIMILARITY` | Ngưỡng cosine similarity |
+| `TEXT_IMAGE_WEIGHT` | Trọng số độ khớp chữ→ảnh trong rerank tìm kiếm chữ |
+| `MAX_UPLOAD_MB` | Dung lượng ảnh upload tối đa |
+| `RATE_LIMIT_PER_MIN`, `SEARCH_RATE_LIMIT_PER_MIN` | Giới hạn request theo phút và IP |
+| `CORS_ORIGINS` | Danh sách origin, phân tách bằng dấu phẩy; chuỗi rỗng = same-origin |
 
-**Trước khi dùng CI lần đầu:** chạy `npm install` trong `backend/` và `frontend/`, rồi commit cả hai file `package-lock.json` (CI và Docker ưu tiên `npm ci` nên cần lockfile khớp `package.json`; nếu thiếu/lệch, chúng tự dùng `npm install` kèm cảnh báo).
+Rate limit của backend Python lưu trong bộ nhớ tiến trình, tương đương cách triển khai backend cũ; khi cần chạy nhiều replica cần chuyển rate limit sang Redis để dùng chung trạng thái.
 
-Cách chuẩn bị server và các secret cần thêm vào GitHub: xem [docs/DEPLOY.md](docs/DEPLOY.md).
+## Dùng Jina AI API thay cho AI Service
 
-## Tinh chỉnh và hạn chế đã biết
+Khi không có chỗ chạy AI Service (ví dụ Render Free, RAM 512 MB), backend có thể lấy embedding từ Jina AI:
 
-- **Thứ hạng khi tìm kiếm.** Sản phẩm vừa khớp cao vừa nhiều sao được đưa lên đầu. Tìm bằng chữ (`/api/recommend`): 60% độ khớp (cosine similarity thật, trộn thêm độ khớp chữ→ảnh theo `TEXT_IMAGE_WEIGHT`), 25% số sao, phần còn lại là cá nhân hóa. Tìm bằng ảnh: 70% độ giống, 30% số sao. Số sao được quy đổi 3 sao trở xuống = 0, 5 sao = 1 để phân biệt 4.0/4.5/5.0; chưa có đánh giá thì trung tính. Hàm nằm ở `backend/src/utils/ranking.js` (có test). Vì CSV không có số lượt đánh giá, sản phẩm 5.0 sao có thể chỉ có vài đánh giá: nếu thấy sao đang lấn át độ khớp, giảm `RATING_WEIGHT` / `SEARCH_WEIGHTS.popular`.
-- **Gợi ý từ lịch sử tìm kiếm.** Khi chưa gõ gì, hệ thống đọc 5 truy vấn chữ gần nhất của trình duyệt này trong bảng `search_history` (PostgreSQL), bỏ truy vấn trùng và truy vấn gõ dở, trộn vector của chúng với trọng số giảm dần theo độ cũ (0.7 mỗi bước), rồi ưu tiên sản phẩm gần khẩu vị đó, kết hợp số sao và sở thích. Thẻ sản phẩm ghi lý do "Dựa trên tìm kiếm “…”". Hiện chỉ dùng truy vấn chữ; tìm bằng ảnh chưa được ghi embedding nên chưa ảnh hưởng. Nút "Xóa" ở mục Tìm kiếm gần đây cũng xóa lịch sử này trong PostgreSQL.
-- **Ngưỡng độ giống.** `TEXT_MIN_SIMILARITY` và `IMAGE_MIN_SIMILARITY` mặc định 0 (không lọc) vì giá trị phù hợp phụ thuộc dữ liệu của bạn. Hãy thử vài truy vấn thật, quan sát `similarity` trong kết quả rồi đặt ngưỡng. Con số "Khớp xx%" trên giao diện là cosine similarity, không phải xác suất.
-- **Dữ liệu** chỉ gồm sản phẩm trong CSV của bạn. 6 sản phẩm mẫu cũ (ảnh Unsplash) đã bị bỏ khỏi mã nguồn và tự bị xóa khỏi database khi backend khởi động. Muốn thêm sản phẩm lẻ, dùng `POST /api/products`.
-- **Lịch sử cá nhân hóa** dựa vào định danh lưu trong trình duyệt, không phải tài khoản: đổi trình duyệt hoặc xóa dữ liệu sẽ mất lịch sử. Gợi ý cá nhân hóa mới dùng truy vấn văn bản, chưa dùng truy vấn ảnh.
-- **Quy mô.** HNSW lo phần tìm theo văn bản và ảnh. `findSimilar` quét toàn bảng nên ổn tới vài chục nghìn sản phẩm; lớn hơn nên lấy ứng viên bằng HNSW rồi mới xếp hạng lại.
-- **Tiếng Việt có dấu** trong nhánh từ khóa dùng cấu hình `simple` (không bỏ dấu). Nhánh vector bù lại cho các truy vấn gõ không dấu.
+```bash
+EMBEDDING_PROVIDER=jina
+JINA_API_KEY=jina_xxx          # lấy tại https://jina.ai (API key có số token miễn phí cho key mới)
+```
+
+- Model `jina-clip-v2` đưa văn bản (đa ngôn ngữ) và ảnh vào cùng một không gian vector; vector 1024 chiều được cắt Matryoshka về 512 chiều nên **không phải đổi schema**.
+- Embedding của model cũ (CLIP ViT-B/32) **không dùng chung được** với Jina. Sau khi đổi provider phải tạo lại toàn bộ:
+  `python -m app.cli reindex --all` (lệnh này cũng xóa vector truy vấn cũ trong `search_history`).
+- Ảnh được thu nhỏ về tối đa 512x512 trước khi gửi, vì API tính phí theo ô 512x512 (ảnh lớn tốn gấp nhiều lần token).
+- Key free bị giới hạn token mỗi phút nên request ảnh được giãn cách (`JINA_IMAGE_INTERVAL_MS`); lập chỉ mục toàn bộ sản phẩm lần đầu mất khoảng 1 giờ.
+- Nếu hết token hoặc sai khóa, backend tự hạ cấp về tìm kiếm từ khóa như khi AI Service ngừng.
+
+### Xử lý sự cố: `/api/health` báo `"ai": "down"`
+
+Mở `https://<backend>/api/health` và đọc trường `provider`:
+
+| Kết quả | Nguyên nhân | Cách sửa |
+|---|---|---|
+| **không có** trường `provider` | backend đang chạy **code cũ** (chưa có `JinaClient`) | chép code mới vào repo, `git push`, đợi Render deploy xong |
+| `"provider": "local"` | thiếu `EMBEDDING_PROVIDER=jina`, backend đang gọi AI Service ở `localhost:8000` (không tồn tại trên Render) | Render → service backend → **Environment**: đặt `EMBEDDING_PROVIDER=jina` và `JINA_API_KEY`, rồi lưu để Render deploy lại |
+| `"provider": "jina"` và `"ai": "up"` | cấu hình đúng, nhưng `up` ở đây **chưa kiểm tra khóa** (health thường không gọi mạng) | mở `/api/health?deep=true` |
+
+`/api/health?deep=true` gọi thật Jina một lần (vài token, giới hạn 6 lần/phút/IP) và trả `aiError` cho biết lý do cụ thể: sai hoặc hết hạn khóa (`JINA_API_KEY`), hết token (xem số dư tại jina.ai), hay không kết nối được mạng.
+
+Log khởi động cũng ghi rõ chế độ: `Embedding provider: jina (model jina-clip-v2)` hoặc `Embedding provider: local (...)`, kèm cảnh báo nếu `NODE_ENV=production` mà vẫn trỏ tới `localhost`.

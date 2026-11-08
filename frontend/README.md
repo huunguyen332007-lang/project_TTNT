@@ -9,7 +9,7 @@ npm install
 npm run dev          # http://localhost:5173, proxy /api về backend ở :3000
 ```
 
-Backend phải đang chạy (`docker compose up -d` ở thư mục gốc, hoặc `npm run dev` trong `backend/`). Khi backend khởi động, CSV được đồng bộ vào PostgreSQL; frontend tải sản phẩm qua API backend (`POST /api/recommend`) và danh mục qua (`GET /api/categories`), không đọc CSV trực tiếp trên trình duyệt. Biến môi trường: xem `.env.example`
+Backend phải đang chạy (`docker compose up -d` ở thư mục gốc, hoặc `cd backend && uvicorn app.main:app --reload`). Khi backend khởi động, CSV được đồng bộ vào PostgreSQL; frontend tải sản phẩm qua API backend (`POST /api/recommend`) và danh mục qua (`GET /api/categories`), không đọc CSV trực tiếp trên trình duyệt. Biến môi trường: xem `.env.example`
 (`VITE_PROXY_TARGET` cho dev, `VITE_API_URL` chỉ khi backend khác domain).
 
 ## Tính năng
@@ -27,7 +27,7 @@ src/
   App.jsx                   trang chính: hero, kết quả, lịch sử
   api.js                    gọi backend (/api/recommend, /api/search/image, /api/categories, /api/products/:id/similar)
   useRecommendations.js     tải kết quả theo bộ lọc, phân trang, chống trộn kết quả cũ
-  budgets.js                nhãn ngân sách (khóa khớp BUDGETS ở backend/src/config/constants.js)
+  budgets.js                nhãn ngân sách (khóa khớp BUDGETS ở backend/app/constants.py)
   format.js                 giá VND, tên sàn
   styles.css, product.css   giao diện (styles.css là nền từ bản mẫu Sáng Search)
   components/               ProductCard, ProductThumb, DetailModal, PreferenceModal, ImageSearchModal
