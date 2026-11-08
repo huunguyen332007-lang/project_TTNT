@@ -25,9 +25,9 @@ from .config import Settings, load_settings
 from .constants import ALLOWED_IMAGE_TYPES, DEFAULT_PAGE_SIZE, DEFAULT_RECOMMEND_LIMIT, DEFAULT_SEARCH_LIMIT, MAX_PAGE_SIZE, MAX_RECOMMEND_LIMIT, MAX_SEARCH_LIMIT, BUDGETS, RECOMMEND_SORTS
 from .errors import HttpError
 from .importer import import_csv
-from .repositories import ProductRepository, SearchHistoryRepository, EventRepository
+from .repositories import ProductRepository, SearchHistoryRepository, EventRepository, StatsRepository
 from .services import (EmbeddingService, IndexingService, ProductService, SearchService, HistoryService,
-                       EventService, RecommendService, RecommendationService, HealthService)
+                       EventService, RecommendService, RecommendationService, HealthService, StatsService)
 
 logger = logging.getLogger("ttnt.backend")
 UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
@@ -298,6 +298,7 @@ def create_app(settings: Settings | None = None, services_override: dict | None 
                 "recommendations": RecommendationService(products_repo, history_repo),
                 "history": HistoryService(history_repo),
                 "events": EventService(event_repo),
+                "stats": StatsService(StatsRepository(pool)),
                 "indexing": indexing,
                 "repositories": {"products": products_repo, "history": history_repo},
                 "ai": ai,
@@ -489,6 +490,13 @@ def create_app(settings: Settings | None = None, services_override: dict | None 
         apply_rate_limit(request, "events", 120)
         await services(request)["events"].record(request.state.client_id, body.as_service_dict())
         return Response(status_code=204)
+
+    @app.get("/api/admin/stats", dependencies=[Depends(require_admin)])
+    async def stats(request: Request,
+                    days: Annotated[int, Query(ge=1, le=365)] = 30,
+                    limit: Annotated[int, Query(ge=1, le=50)] = 10):
+        """Thống kê lượt tìm, lượt bấm, vị trí bấm, sản phẩm được bấm nhiều và từ khóa không ai bấm."""
+        return await services(request)["stats"].summary(days, limit)
 
     @app.post("/api/admin/reindex", dependencies=[Depends(require_admin)])
     async def reindex(request: Request):
