@@ -96,6 +96,7 @@ Tất cả endpoint nằm dưới `/api`.
 | GET / DELETE | `/history` | Đọc hoặc xóa lịch sử của client hiện tại |
 | POST | `/events` | Ghi click/like/dislike vào `click_events` |
 | POST | `/admin/reindex` | Admin: tạo embedding còn thiếu |
+| GET | `/products/:id/reviews?limit=10&offset=0` | Đánh giá của khách hàng (Lazada), hữu ích nhất đứng trước |
 | GET | `/admin/stats?days=30&limit=10` | Admin: thống kê lượt tìm, tỉ lệ bấm, vị trí bấm, từ khóa không ai bấm (xem mục bên dưới) |
 
 `X-Client-Id` vẫn là UUID ẩn danh do frontend tạo. Các endpoint quản trị yêu cầu `X-Api-Key: <ADMIN_API_KEY>`. Lỗi được chuẩn hóa thành `{ "error": { "code": "...", "message": "...", "details": [...] } }`.
@@ -122,6 +123,38 @@ hoặc mở `http://localhost:3000/docs`, chọn `GET /api/admin/stats` → **Tr
 | `zeroClickQueries` | Từ khóa được tìm từ 2 lần trở lên nhưng chưa lần nào được bấm, kèm số kết quả trung bình: nơi tìm kiếm có thể đang sai |
 
 Lưu ý khi đọc số: frontend gửi truy vấn trong lúc người dùng đang gõ, nên các từ gõ dở (ví dụ "tai ng") cũng được tính là một lượt tìm không có bấm. Vì vậy tỉ lệ bấm thực tế cao hơn con số này, và nên lọc danh sách `zeroClickQueries` bằng mắt. Cửa sổ 5 phút giống `training/sql/report_failed_queries.sql`; khác ở chỗ ở đây cú bấm phải thuộc đúng từ khóa đó.
+
+## Dữ liệu Lazada: sản phẩm và đánh giá
+
+`backend/app/seed-data/lazada-products.csv` (6.883 sản phẩm, 7 ngành hàng) và `lazada-reviews.csv` (20.513 đánh giá tiếng Việt) là bản rút gọn cột của hai file `lazada_products_master_dedup.csv` và `lazada_reviews_master_dedup.csv` do nhóm thu thập. Dữ liệu này **không tự nạp khi backend khởi động**, chạy lệnh một lần:
+
+```bash
+cd backend
+python -m app.cli import-lazada --dry-run     # chỉ đọc và in thống kê, không ghi database
+python -m app.cli import-lazada --no-index    # nạp sản phẩm + đánh giá (khoảng 2 giây), chưa tạo embedding
+python -m app.cli reindex                     # tạo embedding khi AI Service hoặc Jina đã sẵn sàng
+```
+
+Muốn nạp file gốc hoặc file khác: `--products đường/dẫn.csv --reviews đường/dẫn.csv`. Chạy lại nhiều lần không tạo bản ghi trùng.
+
+Lệnh này làm gì:
+
+- **Sản phẩm.** Gom danh mục Lazada về danh mục chung của web theo `lazada-category-map.json` (ví dụ "Mỹ phẩm" thành "Làm đẹp"; "điện thoại", "máy tính bảng" thành "Điện thoại & Máy tính bảng"; "Đồ ăn vặt" giữ thành danh mục mới). Danh mục con (ví dụ "kem nền") được lưu vào `tag` để tìm kiếm theo từ khóa. Giá 0 hoặc trống được lưu là không có giá. Sau đó đi qua cùng bước làm sạch với `import-csv` (bỏ link trùng, tin đăng trùng ảnh và tên).
+- **Không ghi đè sản phẩm đã có.** File `marketplace-products.csv` (nạp lại mỗi lần khởi động) cũng chứa 315 sản phẩm trùng link. Nếu cả hai nguồn cùng ghi một dòng thì sẽ đè qua đè lại và làm mất embedding, nên mặc định lệnh chỉ thêm sản phẩm mới. Dùng `--update-existing` nếu thật sự muốn ghi đè.
+- **Đánh giá.** Lưu vào bảng `product_reviews` (migration `004`), ghép với sản phẩm qua link. Bỏ phần đuôi "+2 Helpful(3)" và giữ số 3 thành `helpful_count`, bỏ các dòng "Chưa có nội dung đánh giá văn bản". Không lưu thông tin người đánh giá.
+
+Kết quả khi nạp vào database mới (sau khi backend đã nạp `marketplace-products.csv`):
+
+| | Số lượng |
+|---|---|
+| Sản phẩm đọc được | 6.638 (245 dòng bị loại vì ảnh là ảnh chờ tải `data:image/png;base64`, không phải ảnh thật) |
+| Sau khi bỏ trùng | 6.585, trong đó 315 đã có sẵn nên chỉ thêm 6.270 |
+| Đánh giá có chữ | 17.020 (3.493 dòng không có chữ) |
+| Đánh giá được lưu | 16.242 (742 thuộc sản phẩm bị loại, còn lại là nội dung trùng trong cùng sản phẩm) |
+
+Lưu ý về chất lượng dữ liệu: 40% sản phẩm không có giá và 53% không có điểm sao (hai cột điểm trong file đánh giá là điểm của sản phẩm, không phải của từng đánh giá, và không bổ sung thêm được sản phẩm nào). Một số "đánh giá" thật ra là câu trả lời của shop (ví dụ "Dạ shop mình chân thành cảm ơn..."). Khoảng 27% đánh giá bắt đầu bằng phân loại hàng ("Nhóm màu: Đen Kích cỡ: 39"); phần này được giữ nguyên vì không tách chắc chắn được. Nên lọc các trường hợp này trước khi dùng đánh giá để huấn luyện.
+
+API đọc đánh giá: `GET /api/products/{id}/reviews?limit=10&offset=0` trả `{ items: [{ id, content, helpful }], total, limit, offset }`, đánh giá được nhiều người thấy hữu ích đứng trước.
 
 ## Test
 
