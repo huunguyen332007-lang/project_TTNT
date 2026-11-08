@@ -150,61 +150,42 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
           # Uncomment for an ARM production host: platforms: linux/amd64,linux/arm64
 
-  deploy:
-    name: Deploy to server over SSH
-    needs: publish
+  deploy-render:
+    name: Deploy to Render
+    needs: [backend, frontend, ai-service, compose]
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: read
     environment: production
-    env:
-      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-      DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
-      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH || '/opt/ttnt' }}
-      IMAGE_TAG: sha-${{ github.sha }}
+
     steps:
-      - uses: actions/checkout@v4
-      - name: Configure SSH
+      - name: Validate Render secrets
         env:
-          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          BACKEND_URL: ${{ secrets.RENDER_BACKEND_DEPLOY_HOOK_URL }}
+          FRONTEND_URL: ${{ secrets.RENDER_FRONTEND_DEPLOY_HOOK_URL }}
         run: |
-          test -n "$DEPLOY_HOST" || { echo "Missing DEPLOY_HOST secret"; exit 1; }
-          test -n "$DEPLOY_USER" || { echo "Missing DEPLOY_USER secret"; exit 1; }
-          test -n "$SSH_KEY" || { echo "Missing DEPLOY_SSH_KEY secret"; exit 1; }
-          install -m 700 -d ~/.ssh
-          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -p "$DEPLOY_PORT" -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
-      - name: Upload deployment files
-        run: |
-          ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p '$DEPLOY_PATH'"
-          scp -P "$DEPLOY_PORT" docker-compose.prod.yml deploy/Caddyfile deploy/backup.sh \
-            "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/"
-      - name: Pull images and restart stack
+          test -n "$BACKEND_URL" || {
+            echo "Missing RENDER_BACKEND_DEPLOY_HOOK_URL"
+            exit 1
+          }
+          test -n "$FRONTEND_URL" || {
+            echo "Missing RENDER_FRONTEND_DEPLOY_HOOK_URL"
+            exit 1
+          }
+
+      - name: Deploy Backend
         env:
-          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ACTOR: ${{ github.actor }}
+          DEPLOY_URL: ${{ secrets.RENDER_BACKEND_DEPLOY_HOOK_URL }}
         run: |
-          OWNER="${GITHUB_REPOSITORY_OWNER,,}"
-          printf '%s' "$GHCR_TOKEN" | ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
-            "docker login ghcr.io -u '$ACTOR' --password-stdin"
-          ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
-            "cd '$DEPLOY_PATH' && export GHCR_OWNER='$OWNER' IMAGE_TAG='$IMAGE_TAG' && \
-             docker compose -f docker-compose.prod.yml pull && \
-             docker compose -f docker-compose.prod.yml up -d --remove-orphans && \
-             docker image prune -f"
-      - name: Wait for backend health
+          curl --fail --silent --show-error \
+            --retry 3 --retry-delay 5 \
+            -G --data-urlencode "ref=${GITHUB_SHA}" \
+            "$DEPLOY_URL"
+
+      - name: Deploy Frontend
+        env:
+          DEPLOY_URL: ${{ secrets.RENDER_FRONTEND_DEPLOY_HOOK_URL }}
         run: |
-          ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" 'bash -s' <<'REMOTE'
-          for i in $(seq 1 60); do
-            status=$(docker inspect -f '{{.State.Health.Status}}' ttnt-backend 2>/dev/null || echo none)
-            if [ "$status" = healthy ]; then echo "Backend is healthy."; exit 0; fi
-            sleep 5
-          done
-          echo "Backend did not become healthy. Recent logs:"
-          docker logs --tail 100 ttnt-backend
-          exit 1
-          REMOTE
+          curl --fail --silent --show-error \
+            --retry 3 --retry-delay 5 \
+            -G --data-urlencode "ref=${GITHUB_SHA}" \
+            "$DEPLOY_URL"
