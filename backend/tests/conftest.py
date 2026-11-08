@@ -26,6 +26,7 @@ class Services:
         self.events = self
         self.indexing = self
         self.stats = self
+        self.reviews = self
 
     async def check(self, deep=False):
         self.calls["health_deep"] = deep
@@ -81,6 +82,10 @@ class Services:
     async def reindex_missing(self):
         return {"indexed": 3, "failed": 0}
 
+    async def list_for_product(self, product_id, limit=10, offset=0):
+        self.calls["reviews"] = {"product_id": product_id, "limit": limit, "offset": offset}
+        return {"items": [{"id": 1, "content": "Tốt", "helpful": 2}], "total": 1, "limit": limit, "offset": offset}
+
     async def summary(self, days=30, limit=10):
         self.calls["stats"] = {"days": days, "limit": limit}
         return {"days": days, "searches": {"total": 0, "withClick": 0, "clickThroughRate": None}}
@@ -98,7 +103,7 @@ async def client():
     service_map = {
         "health": service, "products": service, "search": service, "recommend": service,
         "recommendations": service, "history": service, "events": service, "indexing": service,
-        "stats": service,
+        "stats": service, "reviews": service,
     }
     app = create_app(settings, services_override=service_map)
     # ASGITransport does not automatically run FastAPI lifespan handlers.

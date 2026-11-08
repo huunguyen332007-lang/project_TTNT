@@ -8,8 +8,9 @@ from pathlib import Path
 from .ai_client import create_ai_client
 from .config import load_settings
 from .importer import DEFAULT_CSV, import_csv
+from .lazada import LAZADA_PRODUCTS_CSV, LAZADA_REVIEWS_CSV, import_lazada
 from .main import _run_migrations, _wait_for_database
-from .repositories import ProductRepository, SearchHistoryRepository
+from .repositories import ProductRepository, ReviewRepository, SearchHistoryRepository
 from .services import EmbeddingService, IndexingService
 
 
@@ -45,6 +46,16 @@ async def run(args):
                 indexing = IndexingService(products, EmbeddingService(ai), log)
                 await indexing.reindex_missing(concurrency=4)
             return
+        if args.command == "import-lazada":
+            reviews_csv = None if args.no_reviews else (args.reviews or LAZADA_REVIEWS_CSV)
+            result = await import_lazada(products, ReviewRepository(pool), log, args.products or LAZADA_PRODUCTS_CSV,
+                                         reviews_csv, dry_run=args.dry_run, update_existing=args.update_existing)
+            log.info("Lazada import result: %s", result)
+            if not args.dry_run and not args.no_index:
+                ai = create_ai_client(settings)
+                indexing = IndexingService(products, EmbeddingService(ai), log)
+                await indexing.reindex_missing(concurrency=4)
+            return
         if args.command == "reindex":
             if args.all:
                 cleared = await products.clear_embeddings()
@@ -74,6 +85,14 @@ def main():
     importer.add_argument("--keep-conflicts", action="store_true")
     importer.add_argument("--dry-run", action="store_true")
     importer.add_argument("--no-index", action="store_true")
+    lazada = sub.add_parser("import-lazada", help="Import sản phẩm và đánh giá Lazada")
+    lazada.add_argument("--products", type=Path, help="File sản phẩm (mặc định app/seed-data/lazada-products.csv)")
+    lazada.add_argument("--reviews", type=Path, help="File đánh giá (mặc định app/seed-data/lazada-reviews.csv)")
+    lazada.add_argument("--no-reviews", action="store_true", help="Chỉ nạp sản phẩm, bỏ qua đánh giá")
+    lazada.add_argument("--dry-run", action="store_true", help="Chỉ đọc và thống kê, không ghi database")
+    lazada.add_argument("--no-index", action="store_true", help="Không tạo embedding sau khi nạp")
+    lazada.add_argument("--update-existing", action="store_true",
+                        help="Ghi đè cả sản phẩm đã có trong database (mặc định chỉ thêm sản phẩm mới)")
     args = parser.parse_args()
     asyncio.run(run(args))
 

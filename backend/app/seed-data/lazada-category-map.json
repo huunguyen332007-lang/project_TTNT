@@ -1,0 +1,15 @@
+{
+  "byCategory": {
+    "Quần áo": "Thời trang",
+    "Giày dép": "Giày dép",
+    "Túi xách": "Túi xách & Balo",
+    "Mỹ phẩm": "Làm đẹp",
+    "Đồ gia dụng": "Nhà cửa & Đời sống",
+    "Đồ ăn vặt": "Đồ ăn vặt",
+    "Đồ điện tử": "Âm thanh & Công nghệ"
+  },
+  "bySubcategory": {
+    "điện thoại": "Điện thoại & Máy tính bảng",
+    "máy tính bảng": "Điện thoại & Máy tính bảng"
+  }
+}

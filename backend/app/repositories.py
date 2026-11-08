@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from .utils import to_vector_literal, parse_vector
 
 PRODUCT_COLUMNS = """p.id, p.title, p.category, p.tag, p.image_url, p.description,
@@ -100,6 +102,13 @@ class ProductRepository(BaseRepository):
                 for row in await cur.fetchall():
                     counts["inserted" if row["inserted"] else "updated"] += 1
         return counts
+
+    async def find_existing_source_urls(self, urls):
+        """Những link sản phẩm (source_url) trong danh sách đã có trong database."""
+        if not urls:
+            return set()
+        rows = await self.rows("SELECT source_url FROM products WHERE source_url = ANY(%s)", (list(urls),))
+        return {r["source_url"] for r in rows}
 
     async def remove_all(self):
         return await self.execute("DELETE FROM products")
@@ -352,3 +361,36 @@ class StatsRepository(BaseRepository):
             (days, limit),
         )
         return [{"id": r["id"], "title": r["title"], "category": r["category"], "clicks": r["clicks"]} for r in rows]
+
+
+class ReviewRepository(BaseRepository):
+    """Đánh giá sản phẩm (bảng product_reviews)."""
+
+    async def insert_many(self, reviews, batch_size=1000):
+        """Ghép đánh giá với sản phẩm qua source_url; nội dung đã có thì bỏ qua. Trả số dòng thực sự thêm."""
+        inserted = 0
+        for start in range(0, len(reviews), batch_size):
+            batch = reviews[start:start + batch_size]
+            inserted += await self.execute(
+                """INSERT INTO product_reviews (product_id, content, helpful_count, source, content_hash)
+                SELECT p.id, r.content, COALESCE(r.helpful, 0), 'lazada', md5(r.content)
+                FROM jsonb_to_recordset(%s::jsonb) AS r("sourceUrl" TEXT, content TEXT, helpful INT)
+                JOIN products p ON p.source_url = r."sourceUrl"
+                ON CONFLICT (product_id, content_hash) DO NOTHING""",
+                (json.dumps(batch, ensure_ascii=False),),
+            )
+        return inserted
+
+    async def list_for_product(self, product_id, limit, offset):
+        rows = await self.rows(
+            """SELECT id, content, helpful_count, COUNT(*) OVER()::int AS total FROM product_reviews
+            WHERE product_id = %s ORDER BY helpful_count DESC, id LIMIT %s OFFSET %s""",
+            (product_id, limit, offset),
+        )
+        total = rows[0]["total"] if rows else await self._count(product_id)
+        return {"items": [{"id": r["id"], "content": r["content"], "helpful": r["helpful_count"]} for r in rows],
+                "total": total}
+
+    async def _count(self, product_id):
+        row = await self.one("SELECT COUNT(*)::int AS n FROM product_reviews WHERE product_id = %s", (product_id,))
+        return row["n"]
