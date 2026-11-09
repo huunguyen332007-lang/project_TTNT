@@ -20,7 +20,8 @@ def create_app(embedder: Embedder | None = None) -> FastAPI:
     async def lifespan(app: FastAPI):
         if embedder is None:
             real = ClipEmbedder(
-                settings.text_model, settings.image_model, settings.device, settings.embedding_dim, settings.max_image_pixels
+                settings.text_model, settings.image_model, settings.device, settings.embedding_dim, settings.max_image_pixels,
+                settings.quantize,
             )
             if settings.preload:
                 real.load()  # uvicorn chỉ nhận request sau khi nạp xong -> healthcheck chỉ xanh khi model sẵn sàng
@@ -38,7 +39,8 @@ def create_app(embedder: Embedder | None = None) -> FastAPI:
         if not current.ready:
             return JSONResponse(status_code=503, content={"status": "loading"})
         return HealthResponse(
-            status="ok", dim=current.dim, text_model=settings.text_model, image_model=settings.image_model
+            status="ok", dim=current.dim, text_model=settings.text_model, image_model=settings.image_model,
+            quantized=bool(getattr(current, "quantize", False)),
         )
 
     return app

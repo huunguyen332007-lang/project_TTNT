@@ -25,3 +25,4 @@ class HealthResponse(BaseModel):
     dim: int
     text_model: str
     image_model: str
+    quantized: bool = False

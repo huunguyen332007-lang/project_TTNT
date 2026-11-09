@@ -33,7 +33,9 @@ def fit(img_tower, txt_tower, train_loader, evaluate_fn, cfg: TrainConfig, devic
     device = torch.device(device)
     img_tower.module.to(device)
     txt_tower.module.to(device)
-    logit_scale = init_logit_scale(cfg.logit_scale_init).to(device)
+    # Tạo Parameter TRỰC TIẾP trên thiết bị: Parameter.to('cuda') trả về tensor không phải lá (non-leaf)
+    # nên AdamW từ chối ("can't optimize a non-leaf Tensor"). Trên CPU .to() không làm gì nên lỗi này chỉ hiện khi dùng GPU.
+    logit_scale = torch.nn.Parameter(init_logit_scale(cfg.logit_scale_init).detach().to(device))
 
     groups = (
         img_tower.param_groups(cfg.lr, cfg.head_lr, cfg.weight_decay)

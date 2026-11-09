@@ -97,3 +97,13 @@ def test_clip_embedder_decode_handles_modes_and_rejects_garbage():
 
     with pytest.raises(InvalidImageError):
         emb._decode(b"garbage")
+
+
+def test_health_reports_quantized_flag(client):
+    assert client.get("/health").json()["quantized"] is False
+
+
+def test_quantize_setting_defaults_to_off():
+    from app.config import Settings
+
+    assert Settings().quantize is False

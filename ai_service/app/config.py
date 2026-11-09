@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     embedding_dim: int = 512
     device: str = "cpu"
 
+    # True: nén int8 (dynamic quantization) các lớp Linear của cả hai model lúc khởi động.
+    # Chỉ chạy trên CPU. Nhẹ RAM hơn và thường nhanh hơn; vector lệch rất nhỏ so với bản gốc.
+    quantize: bool = False
+
     max_texts_per_request: int = 64
     max_text_chars: int = 2000
     max_image_bytes: int = 8 * 1024 * 1024

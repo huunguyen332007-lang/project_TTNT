@@ -27,12 +27,13 @@ class Embedder(Protocol):
 class ClipEmbedder:
     """Tạo embedding đã chuẩn hóa (độ dài 1) nên cosine similarity = tích vô hướng."""
 
-    def __init__(self, text_model: str, image_model: str, device: str, dim: int, max_pixels: int):
+    def __init__(self, text_model: str, image_model: str, device: str, dim: int, max_pixels: int, quantize: bool = False):
         self.text_model_name = text_model
         self.image_model_name = image_model
         self.device = device
         self.dim = dim
         self.max_pixels = max_pixels
+        self.quantize = quantize
         self.ready = False
         self._text = None
         self._image = None
@@ -46,6 +47,9 @@ class ClipEmbedder:
         logger.info("Nạp model ảnh: %s", self.image_model_name)
         self._image = SentenceTransformer(self.image_model_name, device=self.device)
 
+        if self.quantize:
+            self._quantize_models()
+
         # Kiểm tra sớm: lệch số chiều sẽ làm hỏng cột vector(512) trong PostgreSQL.
         probe_text = self.embed_texts(["kiểm tra"])[0]
         probe_image = self.embed_image(self._probe_png())
@@ -55,6 +59,20 @@ class ClipEmbedder:
             )
         self.ready = True
         logger.info("Model đã sẵn sàng (dim=%d, device=%s)", self.dim, self.device)
+
+    def _quantize_models(self) -> None:
+        """Nén int8 động: trọng số nn.Linear lưu 8 bit, kích hoạt vẫn tính bằng float.
+
+        Không cần dữ liệu hiệu chỉnh và không cần huấn luyện lại. Chỉ hỗ trợ CPU.
+        Bảng embedding từ vựng của DistilBERT không phải nn.Linear nên giữ nguyên float32.
+        """
+        import torch
+
+        if self.device != "cpu":
+            raise RuntimeError("AI_QUANTIZE chỉ hỗ trợ AI_DEVICE=cpu")
+        logger.info("Nén int8 (dynamic quantization) cho cả hai model")
+        self._text = torch.ao.quantization.quantize_dynamic(self._text, {torch.nn.Linear}, dtype=torch.qint8, inplace=True)
+        self._image = torch.ao.quantization.quantize_dynamic(self._image, {torch.nn.Linear}, dtype=torch.qint8, inplace=True)
 
     @staticmethod
     def _probe_png() -> bytes:
