@@ -177,3 +177,96 @@ JINA_API_KEY=jina_xxx          # lấy tại https://jina.ai (API key có số t
 - Ảnh được thu nhỏ về tối đa 512x512 trước khi gửi, vì API tính phí theo ô 512x512 (ảnh lớn tốn gấp nhiều lần token).
 - Key free bị giới hạn token mỗi phút nên request ảnh được giãn cách (`JINA_IMAGE_INTERVAL_MS`); lập chỉ mục toàn bộ sản phẩm lần đầu mất khoảng 1 giờ.
 - Nếu hết token hoặc sai khóa, backend tự hạ cấp về tìm kiếm từ khóa như khi AI Service ngừng.
+
+## Pretrain model cho AI Service
+
+Phần này mô tả quá trình huấn luyện (pretrain/fine-tune) model CLIP mà AI Service sử dụng. Số liệu lấy từ `report.json` và `history.csv` của lần chạy tốt nhất. Cách nạp model đã huấn luyện vào dịch vụ xem `docker-compose.finetuned.yml` ở mục Docker Compose và `ai_service/README.md`.
+
+### Kiến trúc và chiến lược huấn luyện
+
+| Thành phần | Model nền |
+|---|---|
+| Tháp ảnh | `clip-ViT-B-32` |
+| Tháp văn bản | `sentence-transformers/clip-ViT-B-32-multilingual-v1` (đa ngôn ngữ) |
+
+Hai tháp cùng chiếu vào không gian 512 chiều và được huấn luyện theo hướng contrastive (ảnh ↔ chữ). Để tránh overfit trên tập dữ liệu nhỏ và huấn luyện nhanh hơn, mỗi tháp chỉ mở khóa **2 lớp cuối** (cùng lớp chiếu), phần còn lại giữ nguyên.
+
+### Cấu hình huấn luyện
+
+| Tham số | Giá trị |
+|---|---|
+| Số epoch tối đa | 8 |
+| Early stopping (`patience`) | 3 |
+| Batch size | 64 |
+| Learning rate lớp mở khóa (`lr`) | `1e-5` |
+| Learning rate lớp chiếu (`head_lr`) | `1e-4` |
+| Số lớp mở khóa | 2 lớp ảnh, 2 lớp văn bản |
+| Mixed precision (AMP) | Bật |
+| Thiết bị | `cuda` |
+| `workers` / `seed` | 2 / 42 |
+
+Checkpoint tốt nhất được chọn theo `score` trên tập val. Lần chạy này không bị dừng sớm, `best_epoch = 8`.
+
+### Ý nghĩa các chỉ số
+
+- `t2i_R@K`: chữ → ảnh, tỷ lệ tìm đúng ảnh trong top K.
+- `i2t_R@K`: ảnh → chữ, tỷ lệ tìm đúng mô tả trong top K.
+- `i2i_P@10`: độ chính xác top 10 khi tìm ảnh bằng ảnh.
+- `t2t_P@10`: độ chính xác top 10 khi tìm chữ bằng chữ.
+- `q2i_P@10`: độ chính xác top 10 khi dùng truy vấn ngắn để tìm ảnh.
+- `score`: điểm tổng hợp dùng để chọn checkpoint và early stopping.
+
+### Kết quả trên tập test
+
+| Chỉ số | Model gốc | Đã tinh chỉnh | Chênh |
+|---|---:|---:|---:|
+| `t2i_R@1` | 0,233 | **0,443** | +0,210 |
+| `i2t_R@1` | 0,239 | **0,420** | +0,182 |
+| `t2i_R@5` | 0,449 | **0,688** | +0,239 |
+| `i2t_R@5` | 0,472 | **0,676** | +0,205 |
+| `t2i_R@10` | 0,534 | **0,830** | +0,295 |
+| `i2t_R@10` | 0,580 | **0,881** | +0,301 |
+| `i2i_P@10` | 0,694 | **0,710** | +0,015 |
+| `t2t_P@10` | 0,603 | **0,680** | +0,077 |
+| `q2i_P@10` | 0,354 | **0,593** | +0,239 |
+| `score` | 0,514 | **0,669** | **+0,155** |
+
+### Tiến trình huấn luyện (tập val)
+
+Epoch 0 là model gốc chưa tinh chỉnh nên chưa có `loss`.
+
+| Epoch | Loss | `t2i_R@1` | `i2t_R@1` | `t2i_R@10` | `i2t_R@10` | `q2i_P@10` | `score` |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0 (gốc) | nan | 0,211 | 0,177 | 0,543 | 0,526 | 0,379 | 0,507 |
+| 1 | 2,518 | 0,240 | 0,286 | 0,754 | 0,709 | 0,486 | 0,608 |
+| 2 | 1,736 | 0,331 | 0,331 | 0,771 | 0,766 | 0,568 | 0,648 |
+| 3 | 1,327 | 0,337 | 0,337 | 0,783 | 0,760 | 0,539 | 0,649 |
+| 4 | 1,041 | 0,366 | 0,326 | 0,823 | 0,794 | 0,571 | 0,672 |
+| 5 | 0,895 | 0,354 | 0,349 | 0,834 | 0,834 | 0,593 | 0,678 |
+| 6 | 0,766 | 0,371 | 0,366 | 0,829 | 0,829 | 0,586 | 0,679 |
+| 7 | 0,733 | 0,360 | 0,354 | 0,829 | 0,829 | 0,589 | 0,683 |
+| **8** | **0,677** | 0,360 | 0,354 | 0,829 | 0,829 | 0,589 | **0,684** |
+
+Nhận xét:
+
+- Các bài toán chéo modality (chữ ↔ ảnh) cải thiện mạnh nhất, `R@1` gần như tăng gấp đôi.
+- `q2i_P@10` tăng từ 0,354 lên 0,593, cho thấy model hiểu truy vấn ngắn tốt hơn rõ rệt.
+- `i2i_P@10` chỉ tăng nhẹ vì CLIP gốc vốn đã mạnh ở việc so khớp ảnh với ảnh.
+- Phần lớn mức tăng đến từ 4 epoch đầu; sau epoch 5 `score` val gần như phẳng, nên thêm dữ liệu có thể hiệu quả hơn tăng epoch.
+- Tập val (175 mẫu) và test (176 mẫu) nhỏ nên các chỉ số có thể dao động vài điểm phần trăm; nên đọc theo xu hướng tổng thể.
+
+### Chạy lại huấn luyện
+
+```bash
+cd training
+python finetune_clip.py \
+  --data data --out output \
+  --text_model sentence-transformers/clip-ViT-B-32-multilingual-v1 \
+  --image_model clip-ViT-B-32 \
+  --epochs 8 --batch_size 64 \
+  --lr 1e-5 --head_lr 1e-4 \
+  --unfreeze_image_layers 2 --unfreeze_text_layers 2 \
+  --patience 3 --workers 2 --device cuda --seed 42
+```
+
+Kết quả được lưu trong `report.json` (tham số, kết quả model gốc và model tinh chỉnh) và `history.csv` (số liệu từng epoch). Sau khi dùng model mới phải reindex toàn bộ embedding: `python -m app.cli reindex --all`.
