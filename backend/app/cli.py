@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import sys
 from pathlib import Path
 
 from .ai_client import create_ai_client
@@ -30,7 +31,18 @@ async def run(args):
     await pool.open()
     ai = None
     try:
-        await _wait_for_database(pool, attempts=5)
+        try:
+            await _wait_for_database(pool, attempts=5)
+        except Exception as exc:
+            from urllib.parse import urlparse
+            u = urlparse(settings.database_url)
+            log.error(
+                "Không kết nối được PostgreSQL tại %s:%s (database=%s, user=%s). "
+                "Hãy kiểm tra: (1) container postgres đã chạy chưa: `docker compose up -d postgres`; "
+                "(2) DATABASE_URL trong backend/.env đúng host/port/user/mật khẩu; "
+                "(3) cổng 5432 không bị PostgreSQL cài sẵn trên Windows chiếm. Chi tiết: %r",
+                u.hostname, u.port or 5432, u.path.lstrip("/"), u.username, exc)
+            raise SystemExit(1) from exc
         # CLI scripts mirror the old bootstrap: apply pending migrations before each task.
         await _run_migrations(pool)
         if args.command == "migrate":
@@ -94,6 +106,9 @@ def main():
     lazada.add_argument("--update-existing", action="store_true",
                         help="Ghi đè cả sản phẩm đã có trong database (mặc định chỉ thêm sản phẩm mới)")
     args = parser.parse_args()
+    # psycopg async không chạy được trên ProactorEventLoop (mặc định của Windows).
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     asyncio.run(run(args))
 
 
