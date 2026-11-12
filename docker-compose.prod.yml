@@ -1,4 +1,4 @@
-# Dùng trên server production. Image được GitHub Actions build sẵn và đẩy lên GHCR.
+# Dùng trên server production (VPS). Image được GitHub Actions build sẵn và đẩy lên Docker Hub.
 #   docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d
 # Các biến bắt buộc nằm trong file .env cạnh file này (xem .env.example).
 name: ttnt
