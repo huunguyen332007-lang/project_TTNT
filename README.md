@@ -1,8 +1,60 @@
-# TTNT — Tìm kiếm và gợi ý sản phẩm bằng AI
+# PickForYou (TTNT) — Tìm kiếm và gợi ý sản phẩm bằng AI
 
-Dự án sử dụng React + Vite ở frontend, **Python FastAPI ở backend**, FastAPI ở AI Service và PostgreSQL + pgvector để lưu trữ/tìm kiếm embedding.
+[![CI/CD](https://github.com/huunguyen332007-lang/project_TTNT/actions/workflows/ci-cd.yml/badge.svg?branch=main)](https://github.com/huunguyen332007-lang/project_TTNT/actions/workflows/ci-cd.yml)
+
+Ứng dụng web cho phép **tìm sản phẩm bằng chữ hoặc bằng ảnh** (kể cả tiếng Việt) và nhận **gợi ý cá nhân hóa**. Hệ thống đổi chữ/ảnh thành vector (embedding, mô hình CLIP) rồi tìm sản phẩm gần nghĩa nhất trong PostgreSQL + pgvector. Dữ liệu gồm khoảng 6.900 sản phẩm và 20 nghìn đánh giá của Lazada cùng dữ liệu marketplace.
+
+Đây là bài tập lớn **Git · Docker · CI/CD · triển khai ứng dụng AI**: code được đóng gói bằng Docker, kiểm thử/build/deploy tự động bằng GitHub Actions và chạy công khai qua HTTPS.
+
+## Liên kết nộp bài
+
+| Hạng mục | Liên kết |
+|---|---|
+| Ứng dụng đang chạy (HTTPS) | https://ttnt-frontend.onrender.com |
+| GitHub repository | https://github.com/huunguyen332007-lang/project_TTNT |
+| GitHub Actions (workflow CI/CD) | https://github.com/huunguyen332007-lang/project_TTNT/actions/workflows/ci-cd.yml |
+| Docker Hub (tài khoản) | https://hub.docker.com/u/myster03 |
+| Image backend | https://hub.docker.com/r/myster03/ttnt-backend |
+| Image frontend | https://hub.docker.com/r/myster03/ttnt-frontend |
+| Image AI service | https://hub.docker.com/r/myster03/ttnt-ai-service |
+
+Backend API chạy trên Render (tên service trong `render.yaml` là `ttnt-backend`); kiểm tra bằng `GET <địa-chỉ-backend>/api/health`.
 
 ## Kiến trúc
+
+Kiến trúc tối thiểu theo đề: **User → HTTPS → Application (Docker container) → AI Model/LLM API → Database**.
+
+```mermaid
+flowchart LR
+    U["User<br/>(trình duyệt)"] -->|HTTPS| FE["Frontend<br/>React + Vite (nginx)"]
+    FE -->|/api| BE["Backend FastAPI<br/>(Docker container)"]
+    BE -->|embedding chữ/ảnh| AI["AI Model<br/>CLIP (ai-service) hoặc Jina AI API"]
+    BE -->|SQL + vector| DB[("PostgreSQL 16<br/>+ pgvector")]
+```
+
+| Thành phần trong đề | Trong project | Công nghệ |
+|---|---|---|
+| User | Giao diện tìm kiếm chữ/ảnh, lịch sử, gợi ý, chi tiết sản phẩm (`frontend/`) | React 18, Vite, nginx, cổng 8080 khi chạy local |
+| HTTPS | Production trên Render: HTTPS do nền tảng cấp. Trên VPS: Caddy tự cấp và gia hạn chứng chỉ (`deploy/Caddyfile`) | Render / Caddy, cổng 80/443 |
+| Application (Docker container) | Backend API và nghiệp vụ (`backend/`), AI service (`ai_service/`), frontend (`frontend/`), mỗi phần có Dockerfile riêng | Python 3.11, FastAPI, psycopg 3, cổng 3000 |
+| AI Model / LLM API | Mô hình embedding **CLIP** tự host (`ai_service/`, cổng 8000) hoặc **Jina AI API** (`jina-clip-v2`) khi đặt `EMBEDDING_PROVIDER=jina`. Bản chạy trên Render dùng Jina. Đây là mô hình embedding (không phải LLM sinh văn bản) | PyTorch CPU, CLIP / Jina |
+| Database | Sản phẩm, vector 512 chiều (chỉ mục HNSW), lịch sử tìm kiếm, click events, đánh giá. Schema nằm trong `backend/app/migrations/` (4 migration) | PostgreSQL 16 + pgvector, cổng 5432 |
+
+Nếu AI chưa sẵn sàng hoặc hết quota, tìm kiếm chữ tự hạ cấp về tìm theo từ khóa (full-text) nên ứng dụng vẫn dùng được.
+
+## Đối chiếu yêu cầu của đề
+
+| Yêu cầu | Đáp ứng |
+|---|---|
+| Git: nhiều commit có ý nghĩa, feature branch, pull request | Hơn 70 commit (không tính merge); các nhánh `dev`, `feat/*`, `feature/*`; nhiều Pull Request đã merge (xem mục [Quy trình Git](#quy-trình-git)) |
+| Git: giải quyết ít nhất một merge conflict | Có trong lịch sử, ví dụ commit `Fix conflict in ci-cd.yml` và `fix conflict from README.md` |
+| Docker: Dockerfile chạy được, image trên registry | `backend/Dockerfile`, `ai_service/Dockerfile`, `frontend/Dockerfile`; 3 image public trên [Docker Hub](https://hub.docker.com/u/myster03) |
+| CI/CD bằng GitHub Actions: test, build, deploy | `.github/workflows/ci-cd.yml` (xem mục [CI/CD](#cicd-github-actions)) |
+| Database PostgreSQL lưu dữ liệu bền vững | PostgreSQL 16 + pgvector; local dùng volume `pgdata`, trên Render dùng PostgreSQL của Render |
+| Địa chỉ HTTPS công khai | https://ttnt-frontend.onrender.com |
+| README hướng dẫn cài đặt, chạy, triển khai | Các mục [Chạy trên máy tính bằng Docker](#chạy-trên-máy-tính-bằng-docker), [Test](#test), [Triển khai](#triển-khai-lên-render-bản-đang-chạy) |
+
+## Các dịch vụ khi chạy bằng Docker Compose
 
 | Dịch vụ | Công nghệ | Cổng | Vai trò |
 |---|---|---:|---|
@@ -11,8 +63,6 @@ Dự án sử dụng React + Vite ở frontend, **Python FastAPI ở backend**, 
 | AI Service | Python 3.11, FastAPI, CLIP | 8000 | Embedding văn bản và hình ảnh |
 | Database | PostgreSQL 16 + pgvector | 5432 | Sản phẩm, vector, lịch sử tìm kiếm, click events |
 | Reverse proxy | Caddy | 80/443 | HTTPS và định tuyến production |
-
-Backend Node.js/Express đã được thay thế. Schema PostgreSQL, ba migration SQL hiện tại, dữ liệu CSV, route và định dạng request/response công khai được giữ lại.
 
 ## Chạy trên máy tính bằng Docker
 
@@ -183,21 +233,72 @@ npm run build
 
 - `docker-compose.yml`: toàn bộ stack local, database lưu trong named volume `pgdata`.
 - `docker-compose.dev.yml`: override để hot reload backend Python: `docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build`.
-- `docker-compose.prod.yml`: dùng các image đã publish lên GHCR, Caddy làm reverse proxy.
+- `docker-compose.prod.yml`: dùng các image đã publish lên Docker Hub (`<DOCKERHUB_USERNAME>/ttnt-*`), Caddy làm reverse proxy; dùng khi tự chạy trên VPS (xem [docs/DEPLOY.md](docs/DEPLOY.md)).
 - `docker-compose.finetuned.yml`: nạp checkpoint CLIP đã fine-tune; phải reindex toàn bộ embedding trước khi dùng model mới.
 
 ## CI/CD GitHub Actions
 
-Workflow `.github/workflows/ci-cd.yml` chạy:
+Quy trình tổng thể: **Push → GitHub → Test → Build → Deploy → Live**. Workflow nằm ở `.github/workflows/ci-cd.yml`.
 
-1. Backend: Python compile, unit/API tests và PostgreSQL integration tests.
-2. Frontend: Node test và Vite build.
-3. AI Service: pytest.
-4. Validate Compose local/dev/production.
-5. Khi push `main`: build và publish ba image `ttnt-backend`, `ttnt-frontend`, `ttnt-ai-service` lên GHCR, tag `latest` và `sha-<commit>`.
-6. Deploy qua SSH: upload Compose/Caddy/backup config, pull image theo commit, khởi động stack và chờ backend healthy.
+**Khi nào chạy:** push lên `main`, `dev`, `feature/**`; pull request vào `main`/`dev`; hoặc chạy tay (Actions → CI/CD → Run workflow).
 
-Để bật CD, thiết lập GitHub repository secrets: `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`; tùy chọn `DEPLOY_PORT` (mặc định 22), `DEPLOY_PATH` (mặc định `/opt/ttnt`). Xem [docs/DEPLOY.md](docs/DEPLOY.md) để chuẩn bị server, SSH và file `.env` production.
+| Giai đoạn | Job | Việc làm | Chạy ở |
+|---|---|---|---|
+| Test | `backend` | Compile, pytest (unit, API) và test tích hợp trên PostgreSQL thật (service container `pgvector/pgvector:pg16`) | mọi nhánh/PR |
+| Test | `frontend` | `npm ci`, node test, `npm run build` | mọi nhánh/PR |
+| Test | `ai-service` | pytest với embedder giả (không tải model) | mọi nhánh/PR |
+| Test | `compose` | Kiểm tra cú pháp 3 file Docker Compose | mọi nhánh/PR |
+| Build | `publish` (matrix 3 image) | Build và push `ttnt-backend`, `ttnt-frontend`, `ttnt-ai-service` lên Docker Hub, tag `latest` và `sha-<commit>` | chỉ `main`, sau khi test xanh |
+| Deploy | `deploy-render` | Gọi Render Deploy Hook cho backend và frontend (environment `production`) | chỉ `main`, sau khi test xanh |
+
+Nhánh feature và pull request chỉ chạy test, không build/deploy. Nếu một job test đỏ thì `publish` và `deploy-render` không chạy, nên code lỗi không lên production.
+
+Lưu ý: Render tự build bản chạy từ code/Dockerfile trong repo khi nhận Deploy Hook. Image trên Docker Hub là sản phẩm build của pipeline, dùng để chạy trên VPS hoặc máy khác bằng `docker-compose.prod.yml`.
+
+**GitHub repository secrets** (Settings → Secrets and variables → Actions):
+
+| Secret | Ý nghĩa |
+|---|---|
+| `DOCKERHUB_USERNAME` | Tên tài khoản Docker Hub (namespace của image) |
+| `DOCKERHUB_TOKEN` | Access Token Docker Hub quyền Read & Write (không dùng mật khẩu tài khoản) |
+| `RENDER_BACKEND_DEPLOY_HOOK_URL` | Deploy Hook của service backend trên Render |
+| `RENDER_FRONTEND_DEPLOY_HOOK_URL` | Deploy Hook của service frontend trên Render |
+
+**Cách demo pipeline:**
+
+1. Tạo nhánh `feature/ten-thay-doi`, sửa nhỏ (ví dụ đổi chữ trên giao diện), push và mở pull request: các job test chạy, job build/deploy không chạy.
+2. (Tùy chọn) cố ý làm hỏng một test rồi push: pipeline đỏ. Sửa lại để xanh.
+3. Merge vào `main`: test → build 3 image lên Docker Hub → deploy Render.
+4. Mở https://ttnt-frontend.onrender.com và kiểm tra thay đổi đã lên.
+
+## Triển khai lên Render (bản đang chạy)
+
+`render.yaml` mô tả toàn bộ hạ tầng miễn phí: PostgreSQL, backend (Docker) và frontend (static site). Embedding lấy từ Jina AI API nên không cần chạy AI service trên Render.
+
+1. Render → **New → Blueprint**, chọn repo này (hoặc tạo tay hai service và một database theo `render.yaml`).
+2. Điền các biến `sync: false`: `JINA_API_KEY` (lấy tại https://jina.ai).
+3. Sau khi có địa chỉ hai service: đặt `VITE_API_URL` của frontend = địa chỉ backend (không có `/api`) và `CORS_ORIGINS` của backend = địa chỉ frontend.
+4. Với mỗi service: Settings → **Deploy Hook**, sao chép URL vào GitHub secrets `RENDER_BACKEND_DEPLOY_HOOK_URL` và `RENDER_FRONTEND_DEPLOY_HOOK_URL`.
+5. Thêm secrets Docker Hub (`DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`), tạo environment `production` trong Settings → Environments.
+6. Push hoặc merge vào `main`. Lần đầu, chạy `python -m app.cli reindex` (xem mục Jina bên dưới) để tạo embedding cho toàn bộ sản phẩm.
+
+Kiểm tra: `GET <địa-chỉ-backend>/api/health` trả `status: ok` (hoặc `degraded` nếu AI chưa sẵn sàng; `?deep=true` kiểm tra thật kết nối Jina).
+
+Hạn chế của gói free Render:
+
+- PostgreSQL free bị xóa sau 30 ngày; muốn dùng lâu hơn hãy dùng Neon và điền `DATABASE_URL` (xem chú thích trong `render.yaml`).
+- Backend tự ngủ khi không có truy cập, lần gọi đầu sẽ chậm: nên mở trang trước khi demo.
+- Token miễn phí của Jina có hạn.
+
+**Tự chạy trên VPS** (Docker Compose + Caddy + HTTPS tự động, dùng image từ Docker Hub): xem [docs/DEPLOY.md](docs/DEPLOY.md).
+
+## Quy trình Git
+
+- `main`: nhánh ổn định, chỉ nhận code qua pull request và là nhánh duy nhất được build/deploy.
+- `dev`: nhánh tích hợp.
+- `feat/*`, `feature/*`: nhánh cho từng tính năng (ví dụ `feat/frontend`, `feat/api_ai_service`, `feat/config_docker`, `feature/backend-stats`, `feature/lazada-data`).
+- Mỗi thay đổi đi theo trình tự: tạo nhánh feature → commit → push (CI chạy test) → pull request → review → merge.
+- Merge conflict đã được giải quyết trong lịch sử repo, ví dụ commit `Fix conflict in ci-cd.yml` và `fix conflict from README.md`.
 
 ## Cấu hình quan trọng
 
