@@ -184,7 +184,7 @@ export default function App() {
       <header className="topbar">
         <a className="brand" href="#" aria-label="PickForYou trang chủ" onClick={clearSearch}>
           <span className="brand-mark"><Sparkles size={18} strokeWidth={2.4} /></span>
-          <span>Pick<span className="brand-light">ForYou</span><small>Gợi ý sản phẩm</small></span>
+          <span>Pick<span className="brand-light">ForYou</span><small>Gợi ý </small></span>
         </a>
         <nav className="desktop-nav" aria-label="Điều hướng chính">
           <a className="nav-active" href="#discover"><Compass size={16} /> Khám phá</a>
